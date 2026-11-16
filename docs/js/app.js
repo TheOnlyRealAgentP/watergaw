@@ -6,11 +6,11 @@ import { PRODUCTS, PRODUCT, TILT_HINT, productCode, Series, SweepStore, sampleSw
 import { BUILTIN, DOMAINS, HC_CLASSES, parsePal, paletteTexture, cssGradient, colorAt, rgbCss } from './palettes.js';
 import { RadarLayer } from './radar-layer.js';
 import { buildStyle, ANCHOR_RADAR } from './style.js';
-import { Overlays, WARNING_TYPES, MRMS_LAYERS, MRMS_LEGEND, MOSAIC_LEGEND, GAUGE_COLORS, esc, mesoRank, hasTvs } from './overlays.js';
+import { Overlays, WARNING_TYPES, MRMS_LAYERS, MRMS_LEGEND, MOSAIC_LEGEND, GAUGE_COLORS, TRACKS, TRACK_WINDOWS, esc, mesoRank, hasTvs } from './overlays.js';
 import { searchPlaces, summarize, intensityWord } from './places.js';
 import * as U from './units.js';
 
-const VERSION = '1.2.0';
+const VERSION = '1.3.0';
 const FORECAST_LEADS = [10, 20, 30, 40, 50, 60].map((m) => m * 60);
 // Everyday mode shows these products with plain names.
 const SIMPLE_PRODUCTS = [['REF', 'Radar'], ['PST', 'Rain totals']];
@@ -35,7 +35,7 @@ const DEFAULTS = {
   basemap: 'dark',
   autoSite: false,
   units: { ...U.DEFAULT_UNITS },
-  overlays: { warnings: true, watches: true, storms: true, reports: false, spc: false, rivers: false, rings: false, sites: true, satellite: false, lightning: false, tropical: false, mrms: 'off', mosaic: 'auto' },
+  overlays: { warnings: true, watches: true, storms: true, reports: false, spc: false, rivers: false, rings: false, sites: true, satellite: false, lightning: false, tropical: false, rotation: 'off', hail: 'off', mrms: 'off', mosaic: 'auto' },
   warningTypes: Object.fromEntries(WARNING_TYPES.map((w) => [w.key, w.on])),
   srm: { mode: 'auto', dir: 240, kt: 25 },
   filters: {},
@@ -230,6 +230,8 @@ class App {
     this.updateSiteVisibility();
     this.overlays.applyAll();
     if (this.state.overlays.rivers) this.overlays.loadGauges().catch(() => {});
+    clearTimeout(this.trackTimer);
+    this.trackTimer = setTimeout(() => this.overlays.loadTracks(false), 700);
     if (this.state.autoSite || (!this.site && panel.map.getZoom() >= 6)) this.maybeAutoSite();
   }
 
@@ -636,6 +638,12 @@ class App {
       parts.push(`<div class="lg"><div class="lg-title">Lightning · last 15 minutes</div><div class="lg-bar" style="background:linear-gradient(90deg, ${ltg.join(', ')})"></div>
         <div class="lg-ends"><span>Fewer strikes</span><span>More strikes</span></div></div>`);
     }
+    for (const kind of ['hail', 'rotation']) {
+      if (!o[kind] || o[kind] === 'off') continue;
+      const T = TRACKS[kind];
+      const win = TRACK_WINDOWS.find(([v]) => v === o[kind])?.[1] || '';
+      parts.push(stepLegend(`${this.simple && kind === 'hail' ? 'Hail today · largest size' : `${T.label} · last ${win}`}`, T.stops.map(([, c], i) => [c, T.ticks[i]])));
+    }
     if (MRMS_LAYERS[o.mrms]) {
       parts.push(stepLegend(`MRMS rainfall · ${MRMS_LAYERS[o.mrms][1]} · ${this.state.units.rain}`,
         MRMS_LEGEND.map(([v, c]) => [c, this.state.units.rain === 'mm' ? U.fmt(v * 25.4) : String(v)])));
@@ -819,8 +827,10 @@ class App {
       geo = `<div class="sub">${Math.round(first.pol.az)}° ${U.compass(first.pol.az)} · ${U.fmtU(U.distance(first.pol.ground, u.distance), 1)} from ${this.site.id}<br>
         Beam centre ${U.fmtU(U.height(first.pol.height, u.height))} above the radar, ${U.fmtU(U.distance(beamW, u.distance), 1)} wide</div>`;
     }
+    const extra = ['hail', 'rotation'].map((k) => this.overlays.trackAt(k, lngLat.lat, lngLat.lng)).filter(Boolean);
     card.innerHTML = `<button class="icon-btn close" data-act="close-inspect" aria-label="Close">${ICON.x}</button>
-      <div class="vals">${vals.map((v) => `<div><b>${v.prod.short}</b><span>${esc(v.text)}</span></div>`).join('') || '<div><span>No radar loaded here</span></div>'}</div>
+      <div class="vals">${vals.map((v) => `<div><b>${this.simple ? '' : v.prod.short}</b><span>${esc(v.text)}</span></div>`).join('') || '<div><span>No radar loaded here</span></div>'}
+      ${extra.map((t) => `<div><b>MRMS</b><span>${esc(t)}</span></div>`).join('')}</div>
       ${geo}<div class="sub coords">${lngLat.lat.toFixed(4)}, ${lngLat.lng.toFixed(4)}</div>
       ${chips.length ? `<div class="chips">${chips.join('')}</div>` : ''}`;
     card.hidden = false;
@@ -1396,6 +1406,7 @@ class App {
     const o = this.state.overlays;
     const sw = (key, label, note = '') => `<label class="switch"><input type="checkbox" data-ov="${key}" ${o[key] ? 'checked' : ''}><span class="sw"></span><span class="lbl">${label}${note ? `<small>${note}</small>` : ''}</span></label>`;
     const pro = !this.simple;
+    const trackSeg = (kind, label) => `<div class="field"><span>${label}</span><div class="seg" data-track="${kind}">${[['off', 'Off'], ...TRACK_WINDOWS].map(([k, l]) => `<button type="button" role="radio" aria-checked="${(o[kind] || 'off') === k}" data-v="${k}">${l}</button>`).join('')}</div></div>`;
     const mrms = `<div class="field"><span>${pro ? 'Rainfall (MRMS)' : 'Rain totals map'}</span><div class="seg" id="mrms">${[['off', 'Off'], ['p1h', '1 h'], ['p24h', '24 h'], ['p48h', '48 h'], ['p72h', '72 h']].map(([k, l]) => `<button type="button" role="radio" aria-checked="${o.mrms === k}" data-v="${k}">${l}</button>`).join('')}</div></div>`;
     const basemap = `<div class="field"><span>Map style</span><div class="seg" id="basemap">${[['dark', 'Dark'], ['light', 'Light'], ['satellite', 'Satellite']].map(([k, l]) => `<button type="button" role="radio" aria-checked="${this.state.basemap === k}" data-v="${k}">${l}</button>`).join('')}</div></div>`;
     const body = this.openSheet('Layers', pro ? `
@@ -1406,6 +1417,8 @@ class App {
       ${sw('watches', 'Watches & mesoscale discussions', 'Storm Prediction Center')}
       ${sw('storms', 'Storm tracks', 'Cell IDs, hail, rotation and 60-minute forecast paths')}
       ${sw('tropical', 'Hurricanes', 'NHC cones, tracks, coastal watches/warnings and 7-day outlook')}
+      ${trackSeg('rotation', 'Rotation tracks (MRMS)')}
+      ${trackSeg('hail', 'Hail tracks (MRMS)')}
       ${sw('reports', 'Storm reports', 'Tornado, hail, wind and flood reports')}
       ${sw('spc', 'SPC Day 1 outlook')}
       <h4>Water</h4>
@@ -1421,6 +1434,7 @@ class App {
       ${sw('lightning', 'Lightning', 'Where lightning struck in the last 15 minutes')}
       ${sw('storms', 'Storm paths', 'Where strong storms are heading over the next hour')}
       ${sw('tropical', 'Hurricanes', 'Forecast cones and tracks from the National Hurricane Center')}
+      <label class="switch"><input type="checkbox" id="hail-today" ${o.hail === '1440' ? 'checked' : ''}><span class="sw"></span><span class="lbl">Hail today<small>Where hail fell in the last 24 hours, and how big</small></span></label>
       ${sw('rivers', 'River levels', 'Rivers near or above flood stage')}
       ${sw('satellite', 'Clouds', 'Satellite view of clouds')}
       ${mrms}
@@ -1441,6 +1455,8 @@ class App {
       this.save();
       this.overlays.filterWarnings();
     }));
+    $$('[data-track]', body).forEach((el) => segBind(el, (v) => { o[el.dataset.track] = v; this.save(); this.overlays.applyAll(); if (v !== 'off') this.overlays.enable(el.dataset.track); this.renderLegend(); }));
+    $('#hail-today', body)?.addEventListener('change', (e) => { o.hail = e.target.checked ? '1440' : 'off'; this.save(); this.overlays.applyAll(); if (e.target.checked) this.overlays.enable('hail'); this.renderLegend(); });
     segBind($('#mrms', body), (v) => { o.mrms = v; this.save(); this.overlays.reinstallRaster('ov-mrms'); this.overlays.applyAll(); this.renderLegend(); });
     segBind($('#mosaic', body), (v) => { o.mosaic = v; this.save(); this.overlays.applyAll(); this.updateSiteVisibility(); });
     segBind($('#basemap', body), (v) => this.setBasemap(v));

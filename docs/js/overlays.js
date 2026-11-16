@@ -49,6 +49,19 @@ export const MOSAIC_LEGEND = [[5, '#6376a8'], [10, '#4568a6'], [15, '#60b4d4'], 
 const EMPTY = { type: 'FeatureCollection', features: [] };
 const NOWCOAST = 'https://nowcoast.noaa.gov/geoserver/ows';
 const NHC = 'https://mapservices.weather.noaa.gov/tropical/rest/services/tropical/NHC_tropical_weather/MapServer';
+const MRMS = 'https://noaa-mrms-pds.s3.amazonaws.com';
+
+// MRMS track products: rotation (0-2 km azimuthal shear, units of 0.001 s^-1) and hail (MESH, mm).
+export const TRACKS = {
+  rotation: { product: (w) => `RotationTrack${w}min_00.50`, label: 'Rotation tracks',
+    stops: [[8, '#7f95b0'], [10, '#ffd60a'], [13, '#ff9f0a'], [17, '#ff3b30'], [22, '#ff2dbe'], [30, '#ffffff']],
+    fmt: (v) => `${(v / 1000).toFixed(3)} s⁻¹ rotation`, ticks: ['0.008', '0.010', '0.013', '0.017', '0.022', '0.030 s⁻¹'] },
+  hail: { product: (w) => `MESH_Max_${w}min_00.50`, label: 'Hail tracks',
+    stops: [[12.7, '#30d158'], [19.05, '#ffd60a'], [25.4, '#ff9f0a'], [38.1, '#ff3b30'], [50.8, '#ff2dbe'], [63.5, '#ffffff']],
+    fmt: (v) => `Hail up to ${(v / 25.4).toFixed(2)} in`, ticks: ['0.5"', '0.75"', '1"', '1.5"', '2"', '2.5"+'] },
+};
+export const TRACK_WINDOWS = [['60', '1 h'], ['360', '6 h'], ['1440', '24 h']];
+function hexRgb(h) { const n = parseInt(h.slice(1), 16); return [n >> 16, (n >> 8) & 255, n & 255]; }
 
 // Saffir-Simpson category from max sustained wind (kt).
 export function tropicalCategory(kt, type = '') {
@@ -110,6 +123,10 @@ export class Overlays {
     }
     // Rasters sit under the radar.
     this.installRasters(map);
+    for (const [kind, t] of Object.entries(this.tracks || {})) {
+      const b = t.box;
+      if (t.objectUrl) this.placeTrack(map, kind, t.objectUrl, [[b.w, b.n], [b.e, b.n], [b.e, b.s], [b.w, b.s]]);
+    }
 
     add('ov-spc-fill', { type: 'fill', source: 'ov-spc', paint: { 'fill-color': ['coalesce', ['get', 'fill'], '#888'], 'fill-opacity': 0.16 } }, ANCHOR_OVERLAY);
     add('ov-spc-line', { type: 'line', source: 'ov-spc', paint: { 'line-color': ['coalesce', ['get', 'stroke'], '#888'], 'line-width': 1.6 } }, ANCHOR_OVERLAY);
@@ -233,6 +250,8 @@ export class Overlays {
     this.vis(map, ['ov-sites', 'ov-sites-label'], o.sites);
     this.vis(map, ['ov-sat'], o.satellite);
     this.vis(map, ['ov-lightning'], o.lightning);
+    this.vis(map, ['ov-track-rotation'], o.rotation && o.rotation !== 'off');
+    this.vis(map, ['ov-track-hail'], o.hail && o.hail !== 'off');
     this.vis(map, ['ov-trop-outlook', 'ov-trop-outlook-line', 'ov-trop-cone', 'ov-trop-cone-line', 'ov-trop-ww', 'ov-trop-line', 'ov-trop-line-past', 'ov-trop-pts', 'ov-trop-pts-label', 'ov-trop-pts-time'], o.tropical);
     this.vis(map, ['ov-mrms'], !!MRMS_LAYERS[o.mrms]);
     const mosaicOn = o.mosaic === 'on' || (o.mosaic === 'auto' && z < this.app.siteZoomThreshold);
@@ -264,6 +283,7 @@ export class Overlays {
     every('sat', 600e3, () => (this.s.overlays.satellite ? this.loadSatTime() : null));
     every('mrms', 600e3, () => this.bumpMrms());
     every('lightning', 300e3, () => this.bumpLightning());
+    every('tracks', 240e3, () => this.loadTracks(true));
     every('tropical', 900e3, () => (this.s.overlays.tropical ? this.loadTropical() : null));
     this.setSites();
     this.setRings();
@@ -278,6 +298,7 @@ export class Overlays {
       if (name === 'satellite') await this.loadSatTime();
       if (name === 'mrms') this.reinstallRaster('ov-mrms');
       if (name === 'lightning') this.bumpLightning(true);
+      if (name === 'rotation' || name === 'hail') await this.loadTracks(true);
       if (name === 'tropical') {
         const n = await this.loadTropical();
         if (!n) this.app.toast('No tropical storms or hurricanes are active right now.');
@@ -541,6 +562,118 @@ export class Overlays {
       }
     }
     throw new Error('no recent GOES frame');
+  }
+
+  // ---------------------------------------------------------------- MRMS hail & rotation tracks
+
+  trackBox() {
+    const map = this.app.primaryMap;
+    const b = map.getBounds();
+    const padX = (b.getEast() - b.getWest()) * 0.25, padY = (b.getNorth() - b.getSouth()) * 0.25;
+    const box = { w: Math.max(-129.99, b.getWest() - padX), e: Math.min(-60.01, b.getEast() + padX), s: Math.max(20.01, b.getSouth() - padY), n: Math.min(54.99, b.getNorth() + padY) };
+    if (box.e - box.w > 30) { const c = (box.e + box.w) / 2; box.w = c - 15; box.e = c + 15; }
+    if (box.n - box.s > 16) { const c = (box.n + box.s) / 2; box.s = c - 8; box.n = c + 8; }
+    return box;
+  }
+
+  /** Refresh hail/rotation track images for the current view. */
+  async loadTracks(force) {
+    const o = this.s.overlays;
+    const kinds = ['rotation', 'hail'].filter((k) => o[k] && o[k] !== 'off');
+    if (!kinds.length || !this.app.primaryMap) return;
+    const box = this.trackBox();
+    const key = JSON.stringify([box.w, box.e, box.s, box.n].map((v) => Math.round(v * 4)));
+    for (const kind of kinds) {
+      const win = o[kind];
+      const cur = this.tracks?.[kind];
+      if (!force && cur && cur.win === win) {
+        // Keep the loaded image while the view stays inside it at a similar scale.
+        const v = this.app.primaryMap.getBounds();
+        const inside = v.getWest() >= cur.box.w && v.getEast() <= cur.box.e && v.getSouth() >= cur.box.s && v.getNorth() <= cur.box.n;
+        const scale = (box.e - box.w) / (cur.box.e - cur.box.w);
+        if (inside && scale > 0.4) continue;
+      }
+      try {
+        const url = await this.latestMrms(TRACKS[kind].product(win));
+        if (!url) continue;
+        if (!force && cur && cur.url === url && cur.boxKey === key) continue;
+        const mercY = (lat) => { const s = Math.sin((lat * Math.PI) / 180); return 0.5 - Math.log((1 + s) / (1 - s)) / (4 * Math.PI); };
+        const width = Math.min(1600, Math.ceil((box.e - box.w) / 0.01));
+        const height = Math.max(8, Math.round((width * (mercY(box.s) - mercY(box.n))) / ((box.e - box.w) / 360)));
+        const out = await this.app.store.mrms(url, box, width, Math.min(height, 1600));
+        this.tracks = { ...this.tracks, [kind]: { win, url, box, boxKey: key, width, height: Math.min(height, 1600), values: out.values, time: out.meta.time } };
+        await this.drawTrack(kind);
+      } catch (e) {
+        this.app.toast(`Couldn't load ${TRACKS[kind].label.toLowerCase()}: ${e.message}`);
+      }
+    }
+  }
+
+  async latestMrms(product) {
+    const now = Date.now();
+    for (const back of [0, 1]) {
+      const d = new Date(now - back * 86400e3);
+      const day = d.toISOString().slice(0, 10).replace(/-/g, '');
+      const since = new Date(now - 90 * 60e3).toISOString();
+      const after = back ? '' : `&start-after=${encodeURIComponent(`CONUS/${product}/${day}/MRMS_${product}_${day}-${since.slice(11, 13)}${since.slice(14, 16)}`)}`;
+      const xml = await (await fetch(`${MRMS}/?list-type=2&prefix=${encodeURIComponent(`CONUS/${product}/${day}/`)}${after}`, { cache: 'no-store' })).text();
+      const keys = [...xml.matchAll(/<Key>([^<]+)<\/Key>/g)].map((m) => m[1]);
+      if (keys.length) return `${MRMS}/${keys[keys.length - 1]}`;
+    }
+    return null;
+  }
+
+  async drawTrack(kind) {
+    const t = this.tracks[kind];
+    const stops = TRACKS[kind].stops.map(([v, c]) => [v, hexRgb(c)]);
+    const canvas = document.createElement('canvas');
+    canvas.width = t.width;
+    canvas.height = t.height;
+    const ctx = canvas.getContext('2d');
+    const img = ctx.createImageData(t.width, t.height);
+    for (let i = 0; i < t.values.length; i++) {
+      const v = t.values[i];
+      if (!(v >= stops[0][0])) continue;
+      let k = stops.length - 1;
+      while (k > 0 && v < stops[k][0]) k--;
+      const c = stops[k][1];
+      img.data[i * 4] = c[0]; img.data[i * 4 + 1] = c[1]; img.data[i * 4 + 2] = c[2]; img.data[i * 4 + 3] = 235;
+    }
+    ctx.putImageData(img, 0, 0);
+    const blob = await new Promise((r) => canvas.toBlob(r, 'image/png'));
+    if (t.objectUrl) URL.revokeObjectURL(t.objectUrl);
+    t.objectUrl = URL.createObjectURL(blob);
+    const b = t.box;
+    const coords = [[b.w, b.n], [b.e, b.n], [b.e, b.s], [b.w, b.s]];
+    for (const map of this.maps) this.placeTrack(map, kind, t.objectUrl, coords);
+  }
+
+  placeTrack(map, kind, url, coords) {
+    const id = `ov-track-${kind}`;
+    const src = map.getSource(id);
+    if (src) src.updateImage({ url, coordinates: coords });
+    else {
+      map.addSource(id, { type: 'image', url, coordinates: coords });
+      map.addLayer({ id, type: 'raster', source: id, paint: { 'raster-opacity': 0.9, 'raster-fade-duration': 0, 'raster-resampling': 'nearest' } }, map.getLayer(ANCHOR_RADAR) ? ANCHOR_RADAR : undefined);
+    }
+    this.applyVisibility(map);
+  }
+
+  /** Track value under a point, for the inspector. */
+  trackAt(kind, lat, lon) {
+    const t = this.tracks?.[kind];
+    if (!t || !(this.s.overlays[kind] && this.s.overlays[kind] !== 'off')) return null;
+    const b = t.box;
+    if (lat > b.n || lat < b.s || lon < b.w || lon > b.e) return null;
+    const mercY = (la) => { const s = Math.sin((la * Math.PI) / 180); return 0.5 - Math.log((1 + s) / (1 - s)) / (4 * Math.PI); };
+    const x = Math.floor(((lon - b.w) / (b.e - b.w)) * t.width);
+    const y = Math.floor(((mercY(lat) - mercY(b.n)) / (mercY(b.s) - mercY(b.n))) * t.height);
+    let best = NaN;
+    for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+      const v = t.values[(y + dy) * t.width + (x + dx)];
+      if (v >= TRACKS[kind].stops[0][0] && !(best >= v)) best = v;
+    }
+    return Number.isFinite(best) ? TRACKS[kind].fmt(best) : null;
   }
 
   lightningUrl() {

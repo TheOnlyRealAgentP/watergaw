@@ -151,13 +151,13 @@ export class SweepStore {
     this.bytes = 0;
     this.workers.forEach((w, i) => {
       w.onmessage = (e) => {
-        const { id, sweep, nowcast, error } = e.data;
+        const { id, sweep, nowcast, mrms, error } = e.data;
         const p = this.pending.get(id);
         if (!p) return;
         this.pending.delete(id);
         this.busy[i]--;
         if (error) p.reject(new Error(error));
-        else p.resolve(sweep || nowcast);
+        else p.resolve(sweep || nowcast || mrms);
       };
     });
   }
@@ -175,6 +175,11 @@ export class SweepStore {
 
   decode(url) {
     return this.post({ url });
+  }
+
+  /** Decode and crop an MRMS GRIB2 file in a worker. */
+  mrms(url, box, width, height) {
+    return this.post({ mrms: { url, box, width, height } });
   }
 
   /** Rain nowcast in a worker (sweeps are copied, not transferred). */

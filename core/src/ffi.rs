@@ -255,3 +255,28 @@ pub unsafe extern "C" fn of_nowcast(
     );
     blob([meta.into_bytes(), codes, f32_bytes(&field), vec![]])
 }
+
+/// Crop a PNG-packed GRIB2 field (MRMS) to a box, max-pooled onto an
+/// out_w x out_h grid with rows evenly spaced in Web Mercator (north first).
+/// Parts: JSON (time, product ids, grid), f32 values (NaN = nothing).
+///
+/// # Safety
+/// `ptr..ptr+len` must be readable memory.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn of_grib2_crop(ptr: *const u8, len: usize, lat_n: f64, lat_s: f64, lon_w: f64, lon_e: f64, out_w: u32, out_h: u32) -> *mut Blob {
+    let data = unsafe { std::slice::from_raw_parts(ptr, len) };
+    let result = crate::grib2::parse(data).and_then(|f| {
+        let v = crate::grib2::crop_mercator(&f, lat_n, lat_s, lon_w, lon_e, out_w as usize, out_h as usize)?;
+        Ok((f, v))
+    });
+    match result {
+        Ok((f, v)) => {
+            let meta = format!(
+                "{{\"time\":{},\"category\":{},\"number\":{},\"ni\":{},\"nj\":{},\"la1\":{},\"lo1\":{},\"di\":{}}}",
+                num(f.time), f.category, f.number, f.ni, f.nj, num(f.la1), num(f.lo1), num(f.di)
+            );
+            blob([meta.into_bytes(), f32_bytes(&v), vec![], vec![]])
+        }
+        Err(e) => blob([format!("{{\"error\":\"{}\"}}", esc(&e.to_string())).into_bytes(), vec![], vec![], vec![]]),
+    }
+}

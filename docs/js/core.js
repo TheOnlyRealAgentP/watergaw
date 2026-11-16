@@ -55,6 +55,17 @@ export function wrap(w) {
       return [a[1], a[0]];
     },
     beamHeight: (slant, elev) => w.of_beam_height(slant, elev),
+    /** Crop a PNG-packed GRIB2 field to a box (rows evenly spaced in Web Mercator). */
+    grib2Crop(bytes, box, width, height) {
+      const p = w.of_alloc(bytes.length);
+      new Uint8Array(mem(), p, bytes.length).set(bytes);
+      const blob = w.of_grib2_crop(p, bytes.length, box.n, box.s, box.w, box.e, width, height);
+      w.of_free(p, bytes.length);
+      const [meta, values] = take(blob);
+      const m = JSON.parse(new TextDecoder().decode(meta));
+      if (m.error) throw new Error(m.error);
+      return { meta: m, values: new Float32Array(values) };
+    },
     /**
      * Rain nowcast from two sweeps of the same product (older, newer).
      * Returns { summary, frames: Uint8Array[] (one per lead time), field }.
