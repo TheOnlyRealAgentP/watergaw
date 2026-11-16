@@ -55,5 +55,28 @@ export function wrap(w) {
       return [a[1], a[0]];
     },
     beamHeight: (slant, elev) => w.of_beam_height(slant, elev),
+    /**
+     * Rain nowcast from two sweeps of the same product (older, newer).
+     * Returns { summary, frames: Uint8Array[] (one per lead time), field }.
+     */
+    nowcast(older, newer, dt, leadSeconds, fallback = [0, 0]) {
+      const put = (bytes) => { const p = w.of_alloc(bytes.byteLength); new Uint8Array(mem(), p, bytes.byteLength).set(new Uint8Array(bytes.buffer, bytes.byteOffset, bytes.byteLength)); return [p, bytes.byteLength]; };
+      const geom = (m) => [m.rows, m.gates, m.gate_km, m.first_gate_km, m.az0, m.delta, m.elevation];
+      const params = new Float64Array([...geom(older.meta), ...geom(newer.meta), dt]);
+      const steps = new Float64Array(leadSeconds);
+      const lutA = new Float32Array(older.lut.map((v, i) => (older.flags[i] === 0 ? v : NaN)));
+      const lutB = new Float32Array(newer.lut.map((v, i) => (newer.flags[i] === 0 ? v : NaN)));
+      const bufs = [put(params), put(older.codes), put(lutA), put(newer.codes), put(lutB), put(steps)];
+      const [pp, [ap, al], la, [bp, bl], lb, sp] = [bufs[0][0], bufs[1], bufs[2][0], bufs[3], bufs[4][0], bufs[5][0]];
+      const blob = w.of_nowcast(pp, ap, al, la, bp, bl, lb, sp, steps.length, fallback[0], fallback[1]);
+      for (const [p, n] of bufs) w.of_free(p, n);
+      const [meta, codes, field] = take(blob);
+      const summary = JSON.parse(new TextDecoder().decode(meta));
+      if (summary.error) throw new Error(summary.error);
+      const all = new Uint8Array(codes);
+      const n = newer.codes.length;
+      const frames = leadSeconds.map((_, i) => all.slice(i * n, (i + 1) * n));
+      return { summary, frames, field: new Float32Array(field) };
+    },
   };
 }

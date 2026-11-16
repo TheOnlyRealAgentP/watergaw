@@ -47,6 +47,24 @@ export const MRMS_LEGEND = [[0.1, '#003cff'], [0.25, '#0096ff'], [0.5, '#00fe9c'
 export const MOSAIC_LEGEND = [[5, '#6376a8'], [10, '#4568a6'], [15, '#60b4d4'], [20, '#43d67e'], [25, '#0eb314'], [30, '#0b840e'], [35, '#327308'], [40, '#ffe200'], [45, '#ffac00'], [50, '#f80000'], [55, '#aa0000'], [60, '#ffeaff'], [65, '#f960fa'], [70, '#a400f7']];
 
 const EMPTY = { type: 'FeatureCollection', features: [] };
+const NOWCOAST = 'https://nowcoast.noaa.gov/geoserver/ows';
+const NHC = 'https://mapservices.weather.noaa.gov/tropical/rest/services/tropical/NHC_tropical_weather/MapServer';
+export const LIGHTNING_LEGEND = `${NOWCOAST}?service=WMS&version=1.3.0&request=GetLegendGraphic&format=image/png&layer=lightning_detection:ldn_lightning_strike_density`;
+
+// Saffir-Simpson category from max sustained wind (kt).
+export function tropicalCategory(kt, type = '') {
+  const t = String(type).toUpperCase();
+  if (t.includes('PTC') || t.includes('POST') || t.includes('LOW') && !t.includes('TROP')) return { short: 'L', name: 'Low', color: '#9aa6b6' };
+  if (!(kt >= 34)) return { short: 'D', name: 'Tropical depression', color: '#5ac8fa' };
+  if (kt < 64) return { short: 'S', name: 'Tropical storm', color: '#34c759' };
+  if (kt < 83) return { short: '1', name: 'Category 1 hurricane', color: '#ffd60a' };
+  if (kt < 96) return { short: '2', name: 'Category 2 hurricane', color: '#ff9f0a' };
+  if (kt < 113) return { short: '3', name: 'Category 3 major hurricane', color: '#ff453a' };
+  if (kt < 137) return { short: '4', name: 'Category 4 major hurricane', color: '#ff2d92' };
+  return { short: '5', name: 'Category 5 major hurricane', color: '#bf5af2' };
+}
+const TC_WW = { HWR: ['Hurricane Warning', '#ff2d55'], HWA: ['Hurricane Watch', '#ff9ed2'], TWR: ['Tropical Storm Warning', '#3d7bff'], TWA: ['Tropical Storm Watch', '#ffd60a'] };
+const pick = (p, ...keys) => { for (const k of keys) for (const pk of Object.keys(p)) if (pk.toLowerCase() === k.toLowerCase() && p[pk] != null && p[pk] !== '') return p[pk]; return null; };
 
 /** Mesocyclone detection strength rank (0 = none). Ranks 5+ are mesocyclones; 1-4 are weak circulations. */
 export const mesoRank = (p) => (p.meso && p.meso !== 'NONE' ? parseInt(p.meso, 10) || 0 : 0);
@@ -88,7 +106,7 @@ export class Overlays {
     this.maps.add(map);
     const add = (id, layer, before) => { if (!map.getLayer(id)) map.addLayer({ id, ...layer }, before && map.getLayer(before) ? before : undefined); };
     const src = (id, def) => { if (!map.getSource(id)) map.addSource(id, def); };
-    for (const name of ['spc', 'watch', 'mcd', 'warn', 'rings', 'storms', 'tracks', 'lsr', 'gauges', 'sites']) {
+    for (const name of ['spc', 'watch', 'mcd', 'warn', 'rings', 'storms', 'tracks', 'lsr', 'gauges', 'sites', 'trop-outlook', 'trop-cone', 'trop-ww', 'trop-line', 'trop-pts']) {
       src(`ov-${name}`, { type: 'geojson', data: this.data[name] || EMPTY });
     }
     // Rasters sit under the radar.
@@ -103,6 +121,11 @@ export class Overlays {
     add('ov-spokes', { type: 'line', source: 'ov-rings', filter: ['==', ['get', 'kind'], 'spoke'], paint: { 'line-color': 'rgba(255,255,255,0.2)', 'line-width': 1 } }, ANCHOR_OVERLAY);
     add('ov-watch', { type: 'line', source: 'ov-watch', paint: { 'line-color': ['get', 'color'], 'line-width': 2.5, 'line-dasharray': [4, 2] } }, ANCHOR_OVERLAY);
     add('ov-mcd', { type: 'line', source: 'ov-mcd', paint: { 'line-color': '#4aa3ff', 'line-width': 2, 'line-dasharray': [2, 2] } }, ANCHOR_OVERLAY);
+    add('ov-trop-outlook', { type: 'fill', source: 'ov-trop-outlook', paint: { 'fill-color': ['get', 'color'], 'fill-opacity': 0.18 } }, ANCHOR_OVERLAY);
+    add('ov-trop-outlook-line', { type: 'line', source: 'ov-trop-outlook', paint: { 'line-color': ['get', 'color'], 'line-width': 2, 'line-dasharray': [3, 2] } }, ANCHOR_OVERLAY);
+    add('ov-trop-cone', { type: 'fill', source: 'ov-trop-cone', paint: { 'fill-color': '#ffffff', 'fill-opacity': 0.13 } }, ANCHOR_OVERLAY);
+    add('ov-trop-cone-line', { type: 'line', source: 'ov-trop-cone', paint: { 'line-color': '#ffffff', 'line-width': 1.8, 'line-opacity': 0.9 } }, ANCHOR_OVERLAY);
+    add('ov-trop-ww', { type: 'line', source: 'ov-trop-ww', paint: { 'line-color': ['get', 'color'], 'line-width': 6, 'line-opacity': 0.95 } }, ANCHOR_OVERLAY);
     add('ov-warn-fill', { type: 'fill', source: 'ov-warn', paint: { 'fill-color': ['get', 'color'], 'fill-opacity': ['case', ['>', ['get', 'emph'], 0], 0.22, 0.1] } }, ANCHOR_OVERLAY);
     add('ov-warn-casing', { type: 'line', source: 'ov-warn', paint: { 'line-color': 'rgba(0,0,0,0.85)', 'line-width': ['+', 4, ['*', 2, ['get', 'emph']]] } }, ANCHOR_OVERLAY);
     add('ov-warn-line', { type: 'line', source: 'ov-warn', paint: { 'line-color': ['get', 'color'], 'line-width': ['+', 2.2, ['*', 1.6, ['get', 'emph']]] } }, ANCHOR_OVERLAY);
@@ -127,6 +150,18 @@ export class Overlays {
     add('ov-ring-labels', { type: 'symbol', source: 'ov-rings', filter: ['==', ['get', 'kind'], 'label'],
       layout: { 'text-field': ['get', 'label'], 'text-font': ['Noto Sans Regular'], 'text-size': 10, 'text-allow-overlap': true },
       paint: { 'text-color': 'rgba(255,255,255,0.75)', 'text-halo-color': 'rgba(0,0,0,0.9)', 'text-halo-width': 1.2 } });
+    add('ov-trop-line-past', { type: 'line', source: 'ov-trop-line', filter: ['==', ['get', 'past'], true],
+      paint: { 'line-color': 'rgba(220,225,235,0.75)', 'line-width': 2.2 } });
+    add('ov-trop-line', { type: 'line', source: 'ov-trop-line', filter: ['!=', ['get', 'past'], true],
+      paint: { 'line-color': '#ffffff', 'line-width': 2.2, 'line-dasharray': [2, 2] } });
+    add('ov-trop-pts', { type: 'circle', source: 'ov-trop-pts',
+      paint: { 'circle-radius': ['interpolate', ['linear'], ['zoom'], 3, 7, 8, 11], 'circle-color': ['get', 'color'], 'circle-stroke-color': '#0b0e13', 'circle-stroke-width': 2 } });
+    add('ov-trop-pts-label', { type: 'symbol', source: 'ov-trop-pts',
+      layout: { 'text-field': ['get', 'short'], 'text-font': ['Noto Sans Bold'], 'text-size': ['interpolate', ['linear'], ['zoom'], 3, 9, 8, 12], 'text-allow-overlap': true },
+      paint: { 'text-color': '#0b0e13' } });
+    add('ov-trop-pts-time', { type: 'symbol', source: 'ov-trop-pts', minzoom: 4,
+      layout: { 'text-field': ['get', 'when'], 'text-font': ['Noto Sans Regular'], 'text-size': 10.5, 'text-offset': [0, 1.5], 'text-anchor': 'top' },
+      paint: { 'text-color': '#ffffff', 'text-halo-color': 'rgba(0,0,0,0.9)', 'text-halo-width': 1.3 } });
     add('ov-sites', { type: 'circle', source: 'ov-sites',
       paint: { 'circle-radius': ['case', ['get', 'current'], 6, 4.5], 'circle-color': ['case', ['get', 'current'], '#3d8bff', 'rgba(20,24,30,0.9)'],
         'circle-stroke-color': ['case', ['get', 'current'], '#ffffff', 'rgba(160,180,210,0.9)'], 'circle-stroke-width': 1.5 } });
@@ -149,6 +184,11 @@ export class Overlays {
     if (!map.getSource('ov-mosaic')) {
       map.addSource('ov-mosaic', { type: 'raster', tiles: [this.mosaicUrl()], tileSize: 256, maxzoom: 8, attribution: 'Mosaic: Iowa Environmental Mesonet' });
       map.addLayer({ id: 'ov-mosaic', type: 'raster', source: 'ov-mosaic', paint: { 'raster-opacity': 0.85, 'raster-fade-duration': 0 } }, before);
+    }
+    if (!map.getSource('ov-lightning')) {
+      // Above the radar so strikes show on top of storms.
+      map.addSource('ov-lightning', { type: 'raster', tiles: [this.lightningUrl()], tileSize: 256, maxzoom: 10, attribution: 'Lightning: NOAA nowCOAST (NLDN/GLD360)' });
+      map.addLayer({ id: 'ov-lightning', type: 'raster', source: 'ov-lightning', paint: { 'raster-opacity': 0.95, 'raster-fade-duration': 0 } }, map.getLayer(ANCHOR_RADAR) ? ANCHOR_RADAR : undefined);
     }
     const mr = MRMS_LAYERS[this.s.overlays.mrms];
     if (mr && !map.getSource('ov-mrms')) {
@@ -193,6 +233,8 @@ export class Overlays {
     this.vis(map, ['ov-rings', 'ov-spokes', 'ov-ring-labels'], o.rings);
     this.vis(map, ['ov-sites', 'ov-sites-label'], o.sites);
     this.vis(map, ['ov-sat'], o.satellite);
+    this.vis(map, ['ov-lightning'], o.lightning);
+    this.vis(map, ['ov-trop-outlook', 'ov-trop-outlook-line', 'ov-trop-cone', 'ov-trop-cone-line', 'ov-trop-ww', 'ov-trop-line', 'ov-trop-line-past', 'ov-trop-pts', 'ov-trop-pts-label', 'ov-trop-pts-time'], o.tropical);
     this.vis(map, ['ov-mrms'], !!MRMS_LAYERS[o.mrms]);
     const mosaicOn = o.mosaic === 'on' || (o.mosaic === 'auto' && z < this.app.siteZoomThreshold);
     this.vis(map, ['ov-mosaic'], mosaicOn);
@@ -222,6 +264,8 @@ export class Overlays {
     every('mosaic', 150e3, () => this.loadMosaicTime());
     every('sat', 600e3, () => (this.s.overlays.satellite ? this.loadSatTime() : null));
     every('mrms', 600e3, () => this.bumpMrms());
+    every('lightning', 300e3, () => this.bumpLightning());
+    every('tropical', 900e3, () => (this.s.overlays.tropical ? this.loadTropical() : null));
     this.setSites();
     this.setRings();
   }
@@ -234,6 +278,11 @@ export class Overlays {
       if (name === 'rivers') await this.loadGauges(true);
       if (name === 'satellite') await this.loadSatTime();
       if (name === 'mrms') this.reinstallRaster('ov-mrms');
+      if (name === 'lightning') this.bumpLightning(true);
+      if (name === 'tropical') {
+        const n = await this.loadTropical();
+        if (!n) this.app.toast('No tropical storms or hurricanes are active right now.');
+      }
     } catch (e) {
       this.app.toast(`Couldn’t load ${name}: ${e.message}`);
     }
@@ -495,6 +544,82 @@ export class Overlays {
     throw new Error('no recent GOES frame');
   }
 
+  lightningUrl() {
+    return `${NOWCOAST}?service=WMS&version=1.3.0&request=GetMap&layers=lightning_detection:ldn_lightning_strike_density&styles=&crs=EPSG:3857&bbox={bbox-epsg-3857}&width=256&height=256&format=image/png&transparent=true&v=${this.ltgStamp || 0}`;
+  }
+
+  bumpLightning(force) {
+    const stamp = Math.floor(Date.now() / 300e3);
+    if (stamp === this.ltgStamp && !force) return;
+    const first = this.ltgStamp == null;
+    this.ltgStamp = stamp;
+    if (!first || force) {
+      for (const map of this.maps) {
+        const src = map.getSource('ov-lightning');
+        if (src?.setTiles) src.setTiles([this.lightningUrl()]);
+      }
+    }
+  }
+
+  /** Active storms from the National Hurricane Center. Returns how many storms are active. */
+  async loadTropical() {
+    if (!this.nhcIds) {
+      const d = await getJSON(`${NHC}?f=json`);
+      const slots = {};
+      const misc = {};
+      for (const l of d.layers || []) {
+        const m = l.name.match(/^([A-Z]{2}\d) (Forecast Points|Forecast Track|Forecast Cone|Watch-Warning|Past Track)$/);
+        if (m) (slots[m[1]] ||= {})[m[2]] = l.id;
+        if (/^Seven-Day: Potential Development Region$/i.test(l.name)) misc.area = l.id;
+        if (/^Seven-Day: Current Location$/i.test(l.name)) misc.where = l.id;
+      }
+      this.nhcIds = { slots, misc };
+    }
+    const q = (id) => getJSON(`${NHC}/${id}/query?where=1%3D1&outFields=*&returnGeometry=true&f=geojson`);
+    const { slots, misc } = this.nhcIds;
+    const names = Object.keys(slots).filter((k) => slots[k]['Forecast Cone'] != null);
+    const cones = await Promise.allSettled(names.map((k) => q(slots[k]['Forecast Cone'])));
+    const active = names.filter((k, i) => cones[i].status === 'fulfilled' && cones[i].value.features?.length);
+    const cone = [], ww = [], lines = [], pts = [];
+    for (const [i, k] of names.entries()) if (active.includes(k)) cone.push(...cones[i].value.features.map((f) => ({ ...f, properties: { ...f.properties, kind: 'trop-cone' } })));
+    await Promise.all(active.map(async (k) => {
+      const s = slots[k];
+      const [p, t, past, w] = await Promise.allSettled([q(s['Forecast Points']), q(s['Forecast Track']), q(s['Past Track']), q(s['Watch-Warning'])]);
+      if (p.status === 'fulfilled') for (const f of p.value.features || []) {
+        const x = f.properties;
+        const kt = +pick(x, 'MAXWIND', 'INTENSITY') || 0;
+        const cat = tropicalCategory(kt, pick(x, 'STORMTYPE', 'TCDVLP'));
+        pts.push({ ...f, properties: { ...x, kind: 'trop-pt', color: cat.color, short: cat.short, catName: cat.name, kt, when: pick(x, 'FLDATELBL', 'DATELBL') || '' } });
+      }
+      if (t.status === 'fulfilled') for (const f of t.value.features || []) lines.push({ ...f, properties: { ...f.properties, past: false } });
+      if (past.status === 'fulfilled') for (const f of past.value.features || []) lines.push({ ...f, properties: { ...f.properties, past: true } });
+      if (w.status === 'fulfilled') for (const f of w.value.features || []) {
+        const code = String(pick(f.properties, 'TCWW') || '').toUpperCase();
+        const [label, color] = TC_WW[code] || ['Tropical watch/warning', '#ffd60a'];
+        ww.push({ ...f, properties: { ...f.properties, kind: 'trop-ww', label, color } });
+      }
+    }));
+    const outlook = [];
+    if (misc.area != null) {
+      try {
+        const a = await q(misc.area);
+        for (const f of a.features || []) {
+          const x = f.properties;
+          const p7 = parseInt(pick(x, 'PROB7DAY', 'PROB7') || '0', 10);
+          const color = p7 >= 60 ? '#ff453a' : p7 >= 40 ? '#ff9f0a' : '#ffd60a';
+          outlook.push({ ...f, properties: { ...x, kind: 'trop-outlook', color } });
+        }
+      } catch { /* outlook optional */ }
+    }
+    this.setData('trop-cone', { type: 'FeatureCollection', features: cone });
+    this.setData('trop-ww', { type: 'FeatureCollection', features: ww });
+    this.setData('trop-line', { type: 'FeatureCollection', features: lines });
+    this.setData('trop-pts', { type: 'FeatureCollection', features: pts });
+    this.setData('trop-outlook', { type: 'FeatureCollection', features: outlook });
+    this.tropicalActive = active.length;
+    return active.length;
+  }
+
   // ---------------------------------------------------------------- sites & rings
 
   setSites() {
@@ -580,6 +705,34 @@ export class Overlays {
     }
     if (p.kind === 'spc') {
       return { title: `SPC Day 1: ${esc(p.LABEL2 || p.LABEL || '')}`, color: p.fill || '#888', html: `<p class="note">Storm Prediction Center convective outlook.</p>` };
+    }
+    if (p.kind === 'trop-pt') {
+      const name = pick(p, 'STORMNAME') || '';
+      const rows = [
+        ['When', esc(p.when || pick(p, 'ADVDATE') || '—')],
+        ['Strength', esc(p.catName)],
+        ['Max wind', p.kt ? fmtU(knotsTo(p.kt, U.speed)) : '—'],
+        ['Gusts', pick(p, 'GUST') ? fmtU(knotsTo(+pick(p, 'GUST'), U.speed)) : '—'],
+        ['Pressure', pick(p, 'MSLP') && +pick(p, 'MSLP') < 9000 ? `${pick(p, 'MSLP')} mb` : '—'],
+      ];
+      return { title: `${esc(pick(p, 'TCDVLP') || p.catName)} ${esc(name)}`.trim(), color: p.color,
+        html: `<table class="kv">${rows.map(([k, v]) => `<tr><th>${k}</th><td>${v}</td></tr>`).join('')}</table>
+          <p class="note">National Hurricane Center forecast${pick(p, 'ADVISNUM') ? `, advisory ${esc(pick(p, 'ADVISNUM'))}` : ''}. <a href="https://www.nhc.noaa.gov/" target="_blank" rel="noopener">Latest from NHC</a></p>` };
+    }
+    if (p.kind === 'trop-cone') {
+      return { title: `Forecast cone${pick(p, 'STORMNAME') ? ': ' + esc(pick(p, 'STORMNAME')) : ''}`, color: '#ffffff',
+        html: `<p>The center of the storm will probably stay inside this cone over the next five days.</p>
+          <p class="note">Dangerous wind, rain, flooding and storm surge often reach far outside the cone. Follow local officials and the <a href="https://www.nhc.noaa.gov/" target="_blank" rel="noopener">National Hurricane Center</a>.</p>` };
+    }
+    if (p.kind === 'trop-ww') {
+      return { title: esc(p.label), color: p.color, html: '<p class="note">Coastal tropical watch or warning from the National Hurricane Center.</p>' };
+    }
+    if (p.kind === 'trop-outlook') {
+      const p2 = pick(p, 'PROB2DAY', 'PROB2') || '—';
+      const p7 = pick(p, 'PROB7DAY', 'PROB7') || '—';
+      return { title: 'Possible tropical development', color: p.color,
+        html: `<table class="kv"><tr><th>Chance in 2 days</th><td>${esc(p2)}</td></tr><tr><th>Chance in 7 days</th><td>${esc(p7)}</td></tr></table>
+          <p class="note">Area the National Hurricane Center is watching for a tropical storm or hurricane to form.</p>` };
     }
     if (p.kind === 'site') {
       return { title: `${esc(p.id)} · ${esc(p.name)}`, color: '#3d8bff', html: '' };

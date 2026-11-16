@@ -7,6 +7,7 @@ pub mod bytes;
 pub mod ffi;
 pub mod geo;
 pub mod level3;
+pub mod nowcast;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Error {

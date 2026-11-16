@@ -179,3 +179,79 @@ pub extern "C" fn of_destination(lat: f64, lon: f64, az_deg: f64, dist_km: f64) 
 pub extern "C" fn of_beam_height(slant_km: f64, elev_deg: f64) -> f64 {
     geo::beam_height_km(slant_km, elev_deg)
 }
+
+/// Rain nowcast. `params` holds, for the older then the newer sweep,
+/// [rows, gates, gate_km, first_km, az0, delta, elevation], then the seconds
+/// between them (15 numbers). `steps` are lead times in seconds. When no rain
+/// can be tracked, the fallback motion (km/s east, north) is used instead.
+/// Parts: JSON summary, future codes for every step back to back, motion field
+/// (f32 u, v per block, km/s).
+///
+/// # Safety
+/// All pointers must be valid for the lengths given; LUTs hold 256 f32 values.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn of_nowcast(
+    params: *const f64,
+    prev: *const u8,
+    prev_len: usize,
+    prev_lut: *const f32,
+    cur: *const u8,
+    cur_len: usize,
+    cur_lut: *const f32,
+    steps: *const f64,
+    nsteps: usize,
+    fallback_u: f64,
+    fallback_v: f64,
+) -> *mut Blob {
+    use crate::nowcast::{advect, estimate_motion, to_grid, Motion, Polar};
+    let p = unsafe { std::slice::from_raw_parts(params, 15) };
+    let mk = |codes: &'static [u8], lut: &'static [f32], o: usize| Polar {
+        codes,
+        lut,
+        rows: p[o] as usize,
+        gates: p[o + 1] as usize,
+        gate_km: p[o + 2],
+        first_km: p[o + 3],
+        az0: p[o + 4],
+        delta: p[o + 5],
+        elev: p[o + 6],
+    };
+    let (a, la, b, lb, st) = unsafe {
+        (
+            std::slice::from_raw_parts(prev, prev_len),
+            std::slice::from_raw_parts(prev_lut, 256),
+            std::slice::from_raw_parts(cur, cur_len),
+            std::slice::from_raw_parts(cur_lut, 256),
+            std::slice::from_raw_parts(steps, nsteps),
+        )
+    };
+    let older = mk(a, la, 0);
+    let newer = mk(b, lb, 7);
+    if older.rows * older.gates != a.len() || newer.rows * newer.gates != b.len() {
+        return blob([b"{\"error\":\"sweep size mismatch\"}".to_vec(), vec![], vec![], vec![]]);
+    }
+    let dt = p[14];
+    let g0 = to_grid(&older, 2.0, 18.0);
+    let g1 = to_grid(&newer, 2.0, 18.0);
+    let mut m = estimate_motion(&g0, &g1, dt);
+    let tracked = m.valid;
+    if tracked == 0 && (fallback_u != 0.0 || fallback_v != 0.0) {
+        m = Motion::uniform(g1.half, fallback_u as f32, fallback_v as f32);
+    }
+    let mut codes = Vec::with_capacity(b.len() * nsteps);
+    for &tau in st {
+        codes.extend(advect(&newer, &m, tau));
+    }
+    let (mu, mv) = m.mean();
+    let field: Vec<f32> = m.u.iter().zip(&m.v).flat_map(|(u, v)| [*u, *v]).collect();
+    let meta = format!(
+        "{{\"tracked_blocks\":{},\"blocks\":{},\"mean_u\":{},\"mean_v\":{},\"speed_kmh\":{},\"dir_to\":{}}}",
+        tracked,
+        m.nb,
+        num(mu),
+        num(mv),
+        num((mu * mu + mv * mv).sqrt() * 3600.0),
+        num(mu.atan2(mv).to_degrees().rem_euclid(360.0)),
+    );
+    blob([meta.into_bytes(), codes, f32_bytes(&field), vec![]])
+}

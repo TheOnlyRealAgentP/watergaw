@@ -6,16 +6,23 @@ import { PRODUCTS, PRODUCT, TILT_HINT, productCode, Series, SweepStore, sampleSw
 import { BUILTIN, DOMAINS, HC_CLASSES, parsePal, paletteTexture, cssGradient, colorAt, rgbCss } from './palettes.js';
 import { RadarLayer } from './radar-layer.js';
 import { buildStyle, ANCHOR_RADAR } from './style.js';
-import { Overlays, WARNING_TYPES, MRMS_LAYERS, MRMS_LEGEND, MOSAIC_LEGEND, GAUGE_COLORS, esc, mesoRank, hasTvs } from './overlays.js';
+import { Overlays, WARNING_TYPES, MRMS_LAYERS, MRMS_LEGEND, MOSAIC_LEGEND, GAUGE_COLORS, LIGHTNING_LEGEND, esc, mesoRank, hasTvs } from './overlays.js';
+import { searchPlaces, summarize, intensityWord } from './places.js';
 import * as U from './units.js';
 
-const VERSION = '1.1.0';
+const VERSION = '1.2.0';
+const FORECAST_LEADS = [10, 20, 30, 40, 50, 60].map((m) => m * 60);
+// Everyday mode shows these products with plain names.
+const SIMPLE_PRODUCTS = [['REF', 'Radar'], ['PST', 'Rain totals']];
 const STORE_KEY = 'watergaw.v1';
 const $ = (s, el = document) => el.querySelector(s);
 const $$ = (s, el = document) => [...el.querySelectorAll(s)];
 
 const DEFAULTS = {
   site: null,
+  mode: 'simple',
+  forecast: true,
+  places: [],
   layout: 1,
   panels: [{ p: 'REF', t: 0 }, { p: 'SRV', t: 0 }, { p: 'CC', t: 0 }, { p: 'ZDR', t: 0 }],
   active: 0,
@@ -27,7 +34,7 @@ const DEFAULTS = {
   basemap: 'dark',
   autoSite: false,
   units: { ...U.DEFAULT_UNITS },
-  overlays: { warnings: true, watches: true, storms: true, reports: false, spc: false, rivers: false, rings: false, sites: true, satellite: false, mrms: 'off', mosaic: 'auto' },
+  overlays: { warnings: true, watches: true, storms: true, reports: false, spc: false, rivers: false, rings: false, sites: true, satellite: false, lightning: false, tropical: false, mrms: 'off', mosaic: 'auto' },
   warningTypes: Object.fromEntries(WARNING_TYPES.map((w) => [w.key, w.on])),
   srm: { mode: 'auto', dir: 240, kt: 25 },
   filters: {},
@@ -59,7 +66,12 @@ class App {
     this.siteZoomThreshold = 5;
     this.userLoc = null;
     this.warnings = [];
+    this.forecast = null;     // { base, frames: [{ key, time, sweep, lead }] }
+    this.historyEnd = null;   // Unix seconds when looking at the past
+    this.focus = null;        // { name, lat, lon, me }
   }
+
+  get simple() { return this.state.mode === 'simple'; }
 
   // ======================================================== startup
 
@@ -71,6 +83,8 @@ class App {
     this.overlays = new Overlays(this);
     const s = this.state;
     this.site = sites.find((x) => x.id === s.site) || null;
+    if (this.simple) { this.state.layout = 1; this.state.active = 0; }
+    this.applyMode();
     this.buildChrome();
     this.buildPanels();
     this.overlays.start();
@@ -79,6 +93,7 @@ class App {
     else this.showWelcome();
     setInterval(() => { if (!document.hidden) this.poll(); }, 30e3);
     setInterval(() => this.updateStatus(), 5e3);
+    setInterval(() => this.renderFocus(), 60e3);
     document.addEventListener('visibilitychange', () => { if (!document.hidden) this.poll(); });
     this.registerSW();
   }
@@ -262,9 +277,9 @@ class App {
   // ======================================================== data
 
   seriesFor(code) {
-    const id = `${this.site.l3}_${code}_`;
+    const id = `${this.site.l3}_${code}_${this.historyEnd || ''}`;
     let s = this.series.get(id);
-    if (!s) { s = new Series(this.site.l3, code); this.series.set(id, s); }
+    if (!s) { s = new Series(this.site.l3, code, this.historyEnd); this.series.set(id, s); }
     return s;
   }
 
@@ -287,16 +302,19 @@ class App {
     if (master && !master.keys.length) this.toast(`${this.site.id} has no recent ${PRODUCT[this.state.panels[this.state.active].p].name}. The radar may be down or in a mode that skips this product.`);
     this.rebuildTimeline(first);
     this.prefetch();
+    this.updateNowcast();
+    this.renderFocus();
   }
 
   async poll() {
-    if (!this.site) return;
+    if (!this.site || this.historyEnd) return;
     const list = [...new Set(this.panels.map((p) => this.panelSeries(p)))];
     const changed = await Promise.all(list.map((s) => s.refresh(this.state.frames)));
     if (changed.some(Boolean)) {
       this.rebuildTimeline();
       this.prefetch();
     }
+    this.updateNowcast();
     this.updateStatus();
   }
 
@@ -321,16 +339,25 @@ class App {
 
   // ======================================================== timeline
 
+  /** Forecast frames apply when the active panel shows lowest-tilt reflectivity. */
+  forecastApplies() {
+    const cfg = this.state.panels[this.state.active];
+    return !!(this.forecast && this.state.forecast && !this.historyEnd && productCode(cfg.p, cfg.t) === 'N0B');
+  }
+
   rebuildTimeline(jumpLive) {
     const master = this.site ? this.panelSeries(this.activePanel) : null;
-    const frames = master ? master.frames(this.state.frames) : [];
+    const real = master ? master.frames(this.state.frames) : [];
+    const fc = this.forecastApplies() && real.length && this.forecast.base === real[real.length - 1].key ? this.forecast.frames : [];
+    const frames = real.concat(fc);
+    this.realCount = real.length;
     const prevTime = this.timeline?.[this.frameIndex]?.time;
     this.timeline = frames;
     if (!frames.length) { this.frameIndex = -1; this.renderTimeline(); this.showFrame(); return; }
-    if (jumpLive || this.live || prevTime == null) this.frameIndex = frames.length - 1;
+    if (jumpLive || this.live || prevTime == null) this.frameIndex = real.length - 1;
     else {
-      let i = frames.findIndex((f) => f.time >= prevTime);
-      this.frameIndex = i < 0 ? frames.length - 1 : i;
+      const i = frames.findIndex((f) => f.time >= prevTime);
+      this.frameIndex = i < 0 ? real.length - 1 : i;
     }
     this.renderTimeline();
     this.showFrame();
@@ -343,6 +370,13 @@ class App {
       if (!p.layer) continue;
       const s = this.panelSeries(p);
       if (!fr || !s) { p.wantKey = null; p.sweep = null; p.layer.setSweep(null); continue; }
+      if (fr.sweep && s.code === 'N0B') {
+        p.wantKey = fr.key;
+        p.sweep = fr.sweep;
+        p.layer.setSweep(fr.sweep);
+        this.applyLayerOptions(p);
+        continue;
+      }
       const frames = s.frames(this.state.frames + 6);
       let pick = null;
       for (const f of frames) if (f.time <= fr.time + 90) pick = f;
@@ -362,12 +396,13 @@ class App {
     }
     this.renderTimeLabel();
     this.updateStatus();
+    this.updatePanelTags();
   }
 
   step(d) {
     if (!this.timeline?.length) return;
     this.frameIndex = (this.frameIndex + d + this.timeline.length) % this.timeline.length;
-    this.live = this.frameIndex === this.timeline.length - 1;
+    this.live = this.frameIndex === this.realCount - 1;
     $('#scrub').value = this.frameIndex;
     this.showFrame();
   }
@@ -399,7 +434,7 @@ class App {
   goLive() {
     this.togglePlay(false);
     this.live = true;
-    if (this.timeline?.length) { this.frameIndex = this.timeline.length - 1; $('#scrub').value = this.frameIndex; }
+    if (this.timeline?.length) { this.frameIndex = this.realCount - 1; $('#scrub').value = this.frameIndex; }
     this.poll();
     this.showFrame();
   }
@@ -417,14 +452,18 @@ class App {
   renderTicks() {
     const el = $('#ticks');
     const fr = this.timeline || [];
-    el.innerHTML = fr.map((f, i) => `<i class="${this.store.peek(f.key) ? 'ok' : ''} ${i === this.frameIndex ? 'cur' : ''}"></i>`).join('');
+    el.innerHTML = fr.map((f, i) => `<i class="${f.sweep ? 'fc' : this.store.peek(f.key) ? 'ok' : ''} ${i === this.frameIndex ? 'cur' : ''}"></i>`).join('');
   }
 
   renderTimeLabel() {
     const fr = this.timeline?.[this.frameIndex];
     const sw = this.activePanel?.sweep;
-    const t = sw && fr && Math.abs(sw.meta.vol_time - fr.time) < 600 ? sw.meta.scan_time : fr?.time;
+    const t = fr?.sweep ? fr.sweep.meta.scan_time : sw && fr && Math.abs(sw.meta.vol_time - fr.time) < 600 ? sw.meta.scan_time : fr?.time;
     $('#frame-time').textContent = t ? U.clock(t, this.state.utc) : '--:--';
+    $('#frame-time').classList.toggle('fc', !!fr?.sweep);
+    const banner = $('#fc-banner');
+    banner.hidden = !fr?.sweep;
+    if (fr?.sweep) banner.textContent = `Forecast · +${fr.lead / 60} min · where today's storms are heading`;
     $('#btn-live').classList.toggle('on', !!this.timeline?.length && this.live && !this.playing);
     $$('#ticks i').forEach((x, i) => x.classList.toggle('cur', i === this.frameIndex));
   }
@@ -506,7 +545,8 @@ class App {
       const prod = PRODUCT[cfg.p];
       const el = p.sweep && !prod.volume ? `${p.sweep.meta.elevation.toFixed(1)}°` : prod.volume ? '' : TILT_HINT[cfg.t];
       $('b', p.tag).textContent = prod.short;
-      $('span', p.tag).textContent = [el, p.sweep ? U.clock(p.sweep.meta.scan_time, this.state.utc) : ''].filter(Boolean).join(' · ');
+      const when = p.sweep ? (p.sweep.meta.forecast ? `Forecast +${p.sweep.meta.forecast / 60}m` : U.clock(p.sweep.meta.scan_time, this.state.utc)) : '';
+      $('span', p.tag).textContent = [el, when].filter(Boolean).join(' · ');
       p.el.classList.toggle('active', p.index === this.state.active && this.state.layout > 1);
       p.tag.hidden = this.state.layout === 1;
     }
@@ -590,6 +630,7 @@ class App {
     } else if (this.activePanel) {
       parts.push(this.productLegend());
     }
+    if (o.lightning) parts.push(`<div class="lg"><div class="lg-title">Lightning · last 15 min</div><img class="lg-img" src="${LIGHTNING_LEGEND}" alt="Lightning strike density scale" loading="lazy"></div>`);
     if (MRMS_LAYERS[o.mrms]) {
       parts.push(stepLegend(`MRMS rainfall · ${MRMS_LAYERS[o.mrms][1]} · ${this.state.units.rain}`,
         MRMS_LEGEND.map(([v, c]) => [c, this.state.units.rain === 'mm' ? U.fmt(v * 25.4) : String(v)])));
@@ -636,10 +677,15 @@ class App {
       }
       default: lo = 0; hi = 1; unit = ''; ticks = [];
     }
+    if (this.simple && prod.kind === 'ref') {
+      // Plain words in equal blocks so the labels always fit, even on small phones.
+      return stepLegend(`Rain and storms${filt}`, [[25, 'Light'], [35, 'Moderate'], [45, 'Heavy'], [55, 'Very heavy'], [65, 'Hail']].map(([v, l]) => [rgbCss(colorAt(pal, v)), l]));
+    }
     const grad = cssGradient(pal, lo, hi);
     const pos = (v) => ((v - lo) / (hi - lo)) * 100;
     const srv = prod.srv ? this.srvLabel() : '';
-    return `<div class="lg"><div class="lg-title">${prod.name}${unit ? ` · ${unit}` : ''}${srv}${filt}</div>
+    const title = this.simple && prod.kind === 'ref' ? 'Rain and storms' : `${prod.name}${unit ? ` · ${unit}` : ''}`;
+    return `<div class="lg"><div class="lg-title">${title}${srv}${filt}</div>
       <div class="lg-bar" style="background:${grad}"></div>
       <div class="lg-ticks">${ticks.filter(([v]) => v >= lo && v <= hi).map(([v, l]) => `<span style="left:${pos(v)}%">${l}</span>`).join('')}</div></div>`;
   }
@@ -655,7 +701,7 @@ class App {
   fmtValue(prod, v, short) {
     const u = this.state.units;
     switch (prod.kind) {
-      case 'ref': return `${U.fmt(v, short ? 0 : 1)}${short ? '' : ' dBZ'}`;
+      case 'ref': return short ? U.fmt(v) : this.simple ? `${intensityWord(v) || 'Very light'} (${U.fmt(v)} dBZ)` : `${U.fmt(v, 1)} dBZ`;
       case 'vel': { const s = U.speed(v, u.speed); return short ? U.fmt(s.v) : `${U.fmt(Math.abs(s.v))} ${s.unit} ${v < 0 ? 'toward' : v > 0 ? 'away' : ''}`.trim(); }
       case 'cc': return U.fmt(v, short ? 2 : 3);
       case 'zdr': return `${U.fmt(v, short ? 1 : 2)}${short ? '' : ' dB'}`;
@@ -729,7 +775,7 @@ class App {
     const map = panel.map;
     const pad = 8;
     const box = [[e.point.x - pad, e.point.y - pad], [e.point.x + pad, e.point.y + pad]];
-    const layers = ['ov-sites', 'ov-storms', 'ov-lsr', 'ov-gauges'].filter((id) => map.getLayer(id));
+    const layers = ['ov-trop-pts', 'ov-sites', 'ov-storms', 'ov-lsr', 'ov-gauges'].filter((id) => map.getLayer(id));
     const hit = map.queryRenderedFeatures(box, { layers })[0];
     if (hit) {
       const p = hit.properties;
@@ -744,7 +790,7 @@ class App {
   inspectAt(panel, lngLat) {
     const map = panel.map;
     const pt = map.project(lngLat);
-    const areaLayers = ['ov-warn-fill', 'ov-watch', 'ov-mcd', 'ov-spc-fill'].filter((id) => map.getLayer(id));
+    const areaLayers = ['ov-warn-fill', 'ov-trop-ww', 'ov-trop-cone', 'ov-trop-outlook', 'ov-watch', 'ov-mcd', 'ov-spc-fill'].filter((id) => map.getLayer(id));
     const areas = map.queryRenderedFeatures(pt, { layers: areaLayers });
     const seen = new Set();
     const chips = [];
@@ -816,24 +862,213 @@ class App {
   }
 
   checkArrivals() {
-    const el = $('#arrival');
-    if (!this.userLoc) { el.hidden = true; return; }
-    const { lng, lat } = this.userLoc;
-    const inside = (this.warnings || []).filter((f) => pointInGeom([lng, lat], f.geometry));
-    const msgs = [];
-    for (const f of inside.slice(0, 2)) {
-      const p = f.properties;
-      msgs.push({ cls: p.key === 'TOR' ? 'tor' : p.key === 'FFW' ? 'ffw' : 'svr', text: `You’re in a ${p.emph === 2 && p.key === 'TOR' ? 'TORNADO EMERGENCY' : p.event} until ${U.clock(Date.parse(p.expires) / 1000, this.state.utc)}`, f });
+    this.renderFocus();
+  }
+
+  // ======================================================== nowcast
+
+  /** Extrapolate the latest lowest-tilt reflectivity an hour ahead (Rust, in a worker). */
+  async updateNowcast() {
+    if (!this.state.forecast || this.historyEnd || !this.site) { if (this.forecast) { this.forecast = null; this.rebuildTimeline(); } return; }
+    const s = this.seriesFor('N0B');
+    if (!s.keys.length) await s.refresh(this.state.frames);
+    const fr = s.frames(8);
+    if (fr.length < 2) return;
+    const last = fr[fr.length - 1];
+    if (this.forecast?.base === last.key || this.nowcastBusy === last.key) return;
+    this.nowcastBusy = last.key;
+    try {
+      const newer = await this.store.get(last.key);
+      let olderKey = fr[fr.length - 2].key;
+      for (let i = fr.length - 2; i >= 0; i--) if (last.time - fr[i].time >= 240) { olderKey = fr[i].key; break; }
+      const older = await this.store.get(olderKey);
+      const mm = this.overlays.meanMotion();
+      const fallback = mm ? [mm.u / 1000, mm.v / 1000] : [0, 0];
+      const out = await this.store.nowcast(older, newer, FORECAST_LEADS, fallback);
+      this.forecast = {
+        base: last.key,
+        summary: out.summary,
+        frames: out.frames.map((codes, i) => {
+          const lead = FORECAST_LEADS[i];
+          const key = `${last.key}#+${lead / 60}`;
+          const sweep = { key, time: last.time + lead, codes, lut: newer.lut, flags: newer.flags, meta: { ...newer.meta, scan_time: newer.meta.scan_time + lead, forecast: lead } };
+          return { key, time: last.time + lead, lead, sweep };
+        }),
+      };
+      this.rebuildTimeline();
+      this.renderFocus();
+    } catch (e) {
+      console.warn('Nowcast failed:', e);
+    } finally {
+      this.nowcastBusy = null;
     }
-    const arr = this.overlays.arrivals(lng, lat);
-    for (const a of arr.slice(0, 2)) {
-      const c = a.cell;
-      const tags = [hasTvs(c) && 'TVS', mesoRank(c) >= 5 && 'rotation', c.max_size >= 0.75 && `${c.max_size}" hail`].filter(Boolean).join(', ');
-      msgs.push({ cls: hasTvs(c) ? 'tor' : 'cell', text: `Storm ${c.storm_id} reaches you in ~${Math.max(1, Math.round(a.minutes))} min${tags ? ` (${tags})` : ''}`, cell: c });
+  }
+
+  // ======================================================== places & the "here" card
+
+  latestSweep(code) {
+    if (!this.site) return null;
+    const f = this.seriesFor(code).frames(1)[0];
+    return f ? this.store.peek(f.key) : null;
+  }
+
+  async renderFocus() {
+    const card = $('#now');
+    if (!card) return;
+    const f = this.focus;
+    if (!f) {
+      card.hidden = !this.simple || !!$('#welcome');
+      card.className = 'now prompt';
+      card.innerHTML = `<div class="now-head"><b>What's coming?</b></div>
+        <p class="now-sub">See rain, storms and warnings for any place.</p>
+        <div class="now-actions"><button class="btn primary small" data-act="locate">${ICON.locate}<span>My location</span></button>
+        <button class="btn small" data-act="search">${ICON.search}<span>Search a place</span></button></div>`;
+      return;
     }
-    this.arrivalMsgs = msgs;
-    el.hidden = !msgs.length;
-    el.innerHTML = msgs.map((m, i) => `<button class="arr ${m.cls}" data-arr="${i}">${esc(m.text)}</button>`).join('');
+    const nowP = this.latestSweep('N0B');
+    const hcP = this.latestSweep('N0H');
+    const [now, hc] = await Promise.all([nowP ? nowP.catch(() => null) : null, hcP ? hcP.catch(() => null) : null]);
+    if (this.site && !hcP) this.seriesFor('N0H').refresh(2).then(() => { const k = this.seriesFor('N0H').frames(1)[0]; if (k) this.store.get(k.key).then(() => this.renderFocus(), () => {}); });
+    const warnings = (this.warnings || []).filter((w) => pointInGeom([f.lon, f.lat], w.geometry));
+    const ctx = {
+      core: this.core, now, hc, utc: this.state.utc, siteId: this.site?.id || 'the radar',
+      forecast: this.forecast && this.state.forecast ? this.forecast.frames.map((x) => ({ lead: x.lead, sweep: x.sweep })) : [],
+      warnings, arrivals: this.overlays.arrivals(f.lon, f.lat),
+    };
+    const sum = now ? summarize(f.lat, f.lon, ctx) : { level: warnings.length ? 'danger' : 'far', headline: warnings.length ? warnings[0].properties.event : (this.site ? 'Loading radar…' : 'Pick a radar to see rain here'), lines: [], bars: [] };
+    this.focusLines = sum.lines;
+    const saved = this.state.places.some((p) => Math.abs(p.lat - f.lat) < 1e-4 && Math.abs(p.lon - f.lon) < 1e-4);
+    const pal = this.palette('REF');
+    const bars = sum.bars.map((b) => {
+      const c = b.v >= 15 ? rgbCss(colorAt(pal, b.v)) : 'var(--line-strong)';
+      const h = b.v >= 15 ? Math.min(100, 25 + (b.v - 15) * 1.6) : 8;
+      return `<span class="bar ${b.fc ? 'fc' : ''}" title="${b.v >= 20 ? intensityWord(b.v) : 'Dry'}"><i style="height:${h}%;background:${c}"></i><small>${b.label}</small></span>`;
+    }).join('');
+    card.hidden = false;
+    card.className = `now lvl-${sum.level}`;
+    card.innerHTML = `<div class="now-head">${f.me ? ICON.locate : ICON.pin}<b>${esc(f.name)}</b>
+        ${f.me ? '' : `<button class="icon-btn tiny" data-act="save-place" aria-label="${saved ? 'Remove from my places' : 'Save to my places'}" title="${saved ? 'Saved' : 'Save place'}">${saved ? ICON.starOn : ICON.star}</button>`}
+        <button class="icon-btn tiny" data-act="clear-focus" aria-label="Close">${ICON.x}</button></div>
+      <p class="now-headline">${esc(sum.headline)}</p>
+      ${bars ? `<div class="bars" aria-label="Next hour">${bars}</div>` : ''}
+      ${sum.lines.map((l, i) => `<button class="now-line ${l.cls}" data-line="${i}">${esc(l.text)}</button>`).join('')}`;
+  }
+
+  focusOn(place, { fly = true } = {}) {
+    this.focus = place;
+    $('#welcome')?.remove();
+    if (!place.me) this.placeMarker(place);
+    const near = this.nearestSites(place.lat, place.lon)[0];
+    if (near && (!this.site || near.site.id !== this.site.id)) {
+      const cur = this.site ? this.core.polar(this.site.lat, this.site.lon, 0, place.lat, place.lon).ground : Infinity;
+      if (cur > 180 || near.km < cur - 30) this.setSite(near.site.id, { keepView: true });
+    }
+    if (fly) {
+      this.primaryMap.flyTo({ center: [place.lon, place.lat], zoom: Math.max(this.primaryMap.getZoom(), 8.5), duration: 900 });
+      this.primaryMap.once('moveend', () => this.syncAll());
+    }
+    this.renderFocus();
+  }
+
+  placeMarker(place) {
+    for (const p of this.panels) {
+      if (!p.placePin) {
+        const el = document.createElement('div');
+        el.className = 'place-pin';
+        p.placePin = new maplibregl.Marker({ element: el, anchor: 'bottom' });
+      }
+      p.placePin.setLngLat([place.lon, place.lat]).addTo(p.map);
+    }
+  }
+
+  clearFocus() {
+    this.focus = null;
+    for (const p of this.panels) p.placePin?.remove();
+    this.renderFocus();
+  }
+
+  toggleSave() {
+    const f = this.focus;
+    if (!f) return;
+    const i = this.state.places.findIndex((p) => Math.abs(p.lat - f.lat) < 1e-4 && Math.abs(p.lon - f.lon) < 1e-4);
+    if (i >= 0) { this.state.places.splice(i, 1); this.toast(`Removed ${f.name}`); }
+    else { this.state.places.push({ name: f.name, lat: f.lat, lon: f.lon }); this.toast(`Saved ${f.name} to My places`); }
+    this.save();
+    this.renderFocus();
+  }
+
+  openSearch() {
+    const body = this.openSheet('Find a place', `
+      <div class="sheet-tools"><input type="search" id="place-q" placeholder="City, address or ZIP code" autocomplete="off" enterkeyhint="search">
+      <button class="btn" data-act="locate">${ICON.locate}<span>Me</span></button></div>
+      <div class="site-list" id="place-results"></div>
+      ${this.state.places.length ? `<h4>My places</h4><div class="site-list" id="my-places">${this.state.places.map((p, i) => {
+        const warn = (this.warnings || []).find((w) => pointInGeom([p.lon, p.lat], w.geometry));
+        return `<div class="place-row"><button type="button" class="site-row" data-saved="${i}"><b>${ICON.pin}</b><span>${esc(p.name)}</span>
+          <small class="${warn ? 'hot' : ''}">${warn ? esc(warn.properties.event) : ''}</small></button>
+          <button class="icon-btn tiny" data-unsave="${i}" aria-label="Remove ${esc(p.name)}">${ICON.x}</button></div>`;
+      }).join('')}</div>` : '<p class="note">Tip: save places (home, school, family) with the star to check them in one tap.</p>'}`, null, 'search');
+    const input = $('#place-q', body);
+    let timer;
+    let results = [];
+    input.addEventListener('input', () => {
+      clearTimeout(timer);
+      timer = setTimeout(async () => {
+        const q = input.value;
+        try {
+          results = await searchPlaces(q, this.primaryMap.getCenter());
+        } catch { results = []; }
+        if (input.value !== q) return;
+        $('#place-results', body).innerHTML = results.map((r, i) => `<button type="button" class="site-row" data-res="${i}"><b>${ICON.pin}</b><span>${esc(r.name)}<small>${esc(r.detail)}</small></span><small></small></button>`).join('')
+          || (q.trim().length > 1 ? '<p class="note">No matches yet. Try a city and state.</p>' : '');
+      }, 250);
+    });
+    input.addEventListener('keydown', (e) => { if (e.key === 'Enter' && results[0]) { this.closeSheet(); this.focusOn(results[0]); } });
+    body.addEventListener('click', (e) => {
+      const r = e.target.closest('[data-res]');
+      if (r) { this.closeSheet(); return this.focusOn(results[+r.dataset.res]); }
+      const sv = e.target.closest('[data-saved]');
+      if (sv) { this.closeSheet(); return this.focusOn(this.state.places[+sv.dataset.saved]); }
+      const un = e.target.closest('[data-unsave]');
+      if (un) { this.state.places.splice(+un.dataset.unsave, 1); this.save(); this.openSearch(); }
+    });
+    setTimeout(() => input.focus(), 50);
+  }
+
+  // ======================================================== history
+
+  setHistory(t) {
+    this.historyEnd = t && t < Date.now() / 1000 - 300 ? Math.floor(t) : null;
+    this.live = true;
+    this.forecast = null;
+    for (const p of this.panels) { p.sweep = null; p.layer?.setSweep(null); }
+    const b = $('#history-banner');
+    b.hidden = !this.historyEnd;
+    if (this.historyEnd) $('span', b).textContent = `Replaying ${U.dateTime(this.historyEnd, this.state.utc)}`;
+    this.loadAll(true);
+    if (!this.historyEnd) this.poll();
+  }
+
+  // ======================================================== modes
+
+  applyMode() {
+    document.body.classList.toggle('mode-simple', this.simple);
+    document.body.classList.toggle('mode-pro', !this.simple);
+  }
+
+  setMode(mode) {
+    if (mode === this.state.mode) return;
+    this.state.mode = mode;
+    if (this.simple) {
+      if (this.state.layout !== 1) this.setLayout(1);
+      const cfg = this.state.panels[0];
+      if (!SIMPLE_PRODUCTS.some(([id]) => id === cfg.p)) this.setProduct('REF', 0);
+    }
+    this.save();
+    this.applyMode();
+    this.renderProductStrip();
+    this.renderLegend();
+    this.renderFocus();
   }
 
   // ======================================================== location
@@ -858,7 +1093,8 @@ class App {
   setUserLoc(c) {
     this.userLoc = { lng: c.longitude, lat: c.latitude };
     this.placeUserMarkers();
-    this.checkArrivals();
+    if (!this.focus || this.focus.me) this.focus = { name: 'Your location', lat: c.latitude, lon: c.longitude, me: true };
+    this.renderFocus();
   }
 
   placeUserMarkers() {
@@ -879,6 +1115,7 @@ class App {
     const dock = $('.dock');
     new ResizeObserver(() => document.documentElement.style.setProperty('--dock-h', `${dock.offsetHeight}px`)).observe(dock);
     $('#btn-site').addEventListener('click', () => this.openSites());
+    $('#btn-search').addEventListener('click', () => this.openSearch());
     $('#btn-product').addEventListener('click', () => this.openProducts());
     $('#btn-layers').addEventListener('click', () => this.openLayers());
     $('#btn-settings').addEventListener('click', () => this.openSettings());
@@ -898,7 +1135,7 @@ class App {
     $('#scrub').addEventListener('input', (e) => {
       this.togglePlay(false);
       this.frameIndex = +e.target.value;
-      this.live = this.frameIndex === this.timeline.length - 1;
+      this.live = this.frameIndex === this.realCount - 1;
       this.showFrame();
     });
     $('#sheet-close').addEventListener('click', () => this.closeSheet());
@@ -909,8 +1146,14 @@ class App {
   }
 
   onAction(e) {
-    const t = e.target.closest('[data-act], [data-i], [data-arr]');
+    const t = e.target.closest('[data-act], [data-i], [data-arr], [data-line]');
     if (!t) return;
+    if (t.dataset.line != null) {
+      const l = this.focusLines?.[+t.dataset.line];
+      if (l?.warning) { const d = this.overlays.describe(l.warning); return this.openSheet(d.title, d.html, d.color); }
+      if (l?.cell) { const d = this.overlays.describe({ properties: { ...l.cell, kind: 'storm', color: '#ffcc00' } }); return this.openSheet(d.title, d.html, d.color); }
+      return;
+    }
     if (t.dataset.arr != null) {
       const m = this.arrivalMsgs[+t.dataset.arr];
       if (m.f) { const d = this.overlays.describe(m.f); this.openSheet(d.title, d.html, d.color); }
@@ -922,6 +1165,12 @@ class App {
       return this.openSheet(d.title, d.html, d.color);
     }
     switch (t.dataset.act) {
+      case 'search': $('#welcome')?.remove(); return this.openSearch();
+      case 'save-place': return this.toggleSave();
+      case 'clear-focus': return this.clearFocus();
+      case 'mode-pro': this.closeSheet(); return this.setMode('pro');
+      case 'mode-simple': this.closeSheet(); return this.setMode('simple');
+      case 'back-live': return this.setHistory(null);
       case 'close-inspect': return this.closeInspect();
       case 'clear-filter': delete this.state.filters[this.state.panels[this.state.active].p]; this.save(); this.applyPanelProducts(); return;
       case 'locate': this.closeSheet(); $('#welcome')?.remove(); return this.locate();
@@ -950,7 +1199,8 @@ class App {
   renderProductStrip() {
     const cfg = this.state.panels[this.state.active];
     const strip = $('#product-strip');
-    strip.innerHTML = PRODUCTS.map((p) => `<button type="button" role="radio" aria-checked="${p.id === cfg.p}" data-p="${p.id}" title="${p.name}">${p.short}</button>`).join('');
+    const list = this.simple ? SIMPLE_PRODUCTS.map(([id, label]) => ({ ...PRODUCT[id], short: label })) : PRODUCTS;
+    strip.innerHTML = list.map((p) => `<button type="button" role="radio" aria-checked="${p.id === cfg.p}" data-p="${p.id}" title="${p.name}">${p.short}</button>`).join('');
     $$('button', strip).forEach((b) => b.addEventListener('click', () => this.setProduct(b.dataset.p)));
     this.renderTilts();
   }
@@ -1073,29 +1323,44 @@ class App {
   openLayers() {
     const o = this.state.overlays;
     const sw = (key, label, note = '') => `<label class="switch"><input type="checkbox" data-ov="${key}" ${o[key] ? 'checked' : ''}><span class="sw"></span><span class="lbl">${label}${note ? `<small>${note}</small>` : ''}</span></label>`;
-    const body = this.openSheet('Layers', `
+    const pro = !this.simple;
+    const mrms = `<div class="field"><span>${pro ? 'Rainfall (MRMS)' : 'Rain totals map'}</span><div class="seg" id="mrms">${[['off', 'Off'], ['p1h', '1 h'], ['p24h', '24 h'], ['p48h', '48 h'], ['p72h', '72 h']].map(([k, l]) => `<button type="button" role="radio" aria-checked="${o.mrms === k}" data-v="${k}">${l}</button>`).join('')}</div></div>`;
+    const basemap = `<div class="field"><span>Map style</span><div class="seg" id="basemap">${[['dark', 'Dark'], ['light', 'Light'], ['satellite', 'Satellite']].map(([k, l]) => `<button type="button" role="radio" aria-checked="${this.state.basemap === k}" data-v="${k}">${l}</button>`).join('')}</div></div>`;
+    const body = this.openSheet('Layers', pro ? `
       <h4>Severe weather</h4>
       ${sw('warnings', 'Warnings', 'Storm-based NWS warnings, updated every minute')}
       <div class="chips warn-types">${WARNING_TYPES.map((w) => `<button type="button" class="chip ${this.state.warningTypes[w.key] ? 'on' : ''}" data-wt="${w.key}" style="--c:${w.color}">${w.event.replace(' Warning', '').replace('Special Weather Statement', 'Special Wx Statement')}</button>`).join('')}</div>
+      ${sw('lightning', 'Lightning', 'Strike density over the last 15 minutes (NLDN/GLD360 via NOAA)')}
       ${sw('watches', 'Watches & mesoscale discussions', 'Storm Prediction Center')}
       ${sw('storms', 'Storm tracks', 'Cell IDs, hail, rotation and 60-minute forecast paths')}
+      ${sw('tropical', 'Hurricanes', 'NHC cones, tracks, coastal watches/warnings and 7-day outlook')}
       ${sw('reports', 'Storm reports', 'Tornado, hail, wind and flood reports')}
       ${sw('spc', 'SPC Day 1 outlook')}
       <h4>Water</h4>
       ${sw('rivers', 'River gauges', 'Flood status and forecasts; tap a gauge for its hydrograph')}
-      <div class="field"><span>Rainfall (MRMS)</span><div class="seg" id="mrms">${[['off', 'Off'], ['p1h', '1 h'], ['p24h', '24 h'], ['p48h', '48 h'], ['p72h', '72 h']].map(([k, l]) => `<button type="button" role="radio" aria-checked="${o.mrms === k}" data-v="${k}">${l}</button>`).join('')}</div></div>
+      ${mrms}
       <h4>Map</h4>
       <div class="field"><span>National mosaic</span><div class="seg" id="mosaic">${[['auto', 'Zoomed out'], ['on', 'Always'], ['off', 'Never']].map(([k, l]) => `<button type="button" role="radio" aria-checked="${o.mosaic === k}" data-v="${k}">${l}</button>`).join('')}</div></div>
       ${sw('satellite', 'Satellite (GOES infrared)')}
       ${sw('rings', 'Range rings')}
       ${sw('sites', 'Radar sites')}
-      <div class="field"><span>Basemap</span><div class="seg" id="basemap">${[['dark', 'Dark'], ['light', 'Light'], ['satellite', 'Satellite']].map(([k, l]) => `<button type="button" role="radio" aria-checked="${this.state.basemap === k}" data-v="${k}">${l}</button>`).join('')}</div></div>`, null, 'layers');
+      ${basemap}` : `
+      ${sw('warnings', 'Warnings', 'Tornado, severe storm and flash flood warnings')}
+      ${sw('lightning', 'Lightning', 'Where lightning struck in the last 15 minutes')}
+      ${sw('storms', 'Storm paths', 'Where strong storms are heading over the next hour')}
+      ${sw('tropical', 'Hurricanes', 'Forecast cones and tracks from the National Hurricane Center')}
+      ${sw('rivers', 'River levels', 'Rivers near or above flood stage')}
+      ${sw('satellite', 'Clouds', 'Satellite view of clouds')}
+      ${mrms}
+      ${basemap}
+      <p class="note">Want velocity, dual-pol, multiple panels and more? <button type="button" class="linkish" data-act="mode-pro">Switch to Pro mode</button></p>`, null, 'layers');
     $$('[data-ov]', body).forEach((c) => c.addEventListener('change', () => {
       o[c.dataset.ov] = c.checked;
       this.save();
       if (c.checked) this.overlays.enable(c.dataset.ov);
       else this.overlays.applyAll();
       if (c.dataset.ov === 'rings') this.overlays.setRings();
+      this.renderLegend();
     }));
     $$('[data-wt]', body).forEach((b) => b.addEventListener('click', () => {
       const k = b.dataset.wt;
@@ -1123,13 +1388,19 @@ class App {
     const s = this.state;
     const unitSeg = (k) => `<div class="field"><span>${{ speed: 'Wind speed', distance: 'Distance', height: 'Height', rain: 'Rainfall' }[k]}</span><div class="seg" data-unit="${k}">${U.UNIT_OPTIONS[k].map(([v, l]) => `<button type="button" role="radio" aria-checked="${s.units[k] === v}" data-v="${v}">${l}</button>`).join('')}</div></div>`;
     const pals = ['REF', 'VEL', 'CC', 'ZDR', 'KDP', 'HC', 'VIL', 'ET', 'PRECIP'];
+    const histVal = this.historyEnd ? new Date((this.historyEnd - new Date().getTimezoneOffset() * 60) * 1000).toISOString().slice(0, 16) : '';
     const body = this.openSheet('Settings', `
+      <div class="field"><span>Mode</span><div class="seg wide" id="set-mode"><button type="button" role="radio" aria-checked="${this.simple}" data-v="simple">Simple</button><button type="button" role="radio" aria-checked="${!this.simple}" data-v="pro">Pro</button></div>
+        <small class="note">${this.simple ? 'Simple keeps things plain: radar, rain totals and what’s coming to your places.' : 'Pro shows every product, elevation, panel and tool.'}</small></div>
+      <label class="switch"><input type="checkbox" id="set-forecast" ${s.forecast ? 'checked' : ''}><span class="sw"></span><span class="lbl">Show the next hour<small>Projects current storms forward up to 60 minutes. A forecast, not a guarantee.</small></span></label>
+      ${this.simple ? '' : `<div class="field"><span>Go back in time</span><div class="row2"><input type="datetime-local" id="set-history" value="${histVal}" min="2022-02-19T00:00"><button type="button" class="btn small" data-act="back-live">Back to live</button></div>
+        <small class="note">Replay any storm since February 2022 at this radar.</small></div>`}
       <h4>Display</h4>
       <label class="switch"><input type="checkbox" id="set-smooth" ${s.smooth ? 'checked' : ''}><span class="sw"></span><span class="lbl">Smooth radar<small>Interpolates between gates. Off shows every raw gate (key: S).</small></span></label>
       <div class="field"><span>Radar opacity</span><input type="range" id="set-opacity" min="0.3" max="1" step="0.05" value="${s.opacity}"></div>
       <label class="switch"><input type="checkbox" id="set-utc" ${s.utc ? 'checked' : ''}><span class="sw"></span><span class="lbl">Show times in UTC</span></label>
       <h4>Loop</h4>
-      <div class="field"><span>Frames</span><div class="seg" id="set-frames">${[6, 12, 20, 30].map((n) => `<button type="button" role="radio" aria-checked="${s.frames === n}" data-v="${n}">${n}</button>`).join('')}</div></div>
+      <div class="field"><span>Frames</span><div class="seg" id="set-frames">${[6, 12, 20, 30, 60].map((n) => `<button type="button" role="radio" aria-checked="${s.frames === n}" data-v="${n}">${n}</button>`).join('')}</div></div>
       <div class="field"><span>Speed</span><div class="seg" id="set-speed">${[[0.5, 'Slow'], [1, 'Normal'], [2, 'Fast']].map(([v, l]) => `<button type="button" role="radio" aria-checked="${s.speed === v}" data-v="${v}">${l}</button>`).join('')}</div></div>
       <h4>Units</h4>
       ${['speed', 'distance', 'height', 'rain'].map(unitSeg).join('')}
@@ -1142,6 +1413,9 @@ class App {
       <div class="chips"><button type="button" class="chip" data-act="about">About Watergaw & data</button>
       ${this.installPrompt ? '<button type="button" class="chip on" data-act="install">Install app</button>' : ''}</div>
       <p class="note">Keyboard: space play/pause · ←/→ frames · ↑/↓ elevation · 1–9 products · S smoothing · L live.</p>`, null, 'settings');
+    segBind($('#set-mode', body), (v) => { this.setMode(v); this.openSettings(); });
+    $('#set-forecast', body).addEventListener('change', (e) => { s.forecast = e.target.checked; this.save(); this.forecast = null; this.updateNowcast(); this.rebuildTimeline(); this.renderFocus(); });
+    $('#set-history', body)?.addEventListener('change', (e) => { const t = Date.parse(e.target.value); if (t) this.setHistory(t / 1000); });
     $('#set-smooth', body).addEventListener('change', (e) => { s.smooth = e.target.checked; this.save(); this.panels.forEach((p) => this.applyLayerOptions(p)); });
     $('#set-opacity', body).addEventListener('input', (e) => { s.opacity = +e.target.value; this.save(); this.panels.forEach((p) => this.applyLayerOptions(p)); });
     $('#set-utc', body).addEventListener('change', (e) => { s.utc = e.target.checked; this.save(); this.updatePanelTags(); this.renderTimeLabel(); });
@@ -1253,11 +1527,11 @@ class App {
     el.className = 'welcome';
     el.innerHTML = `<img class="welcome-logo" src="icons/icon.svg" alt="" width="84" height="84"><h2>Watergaw</h2><p>Pro-grade radar, free for everyone.</p>
       <div class="welcome-actions"><button class="btn primary" data-act="locate">${ICON.locate}<span>Use my location</span></button>
-      <button class="btn" id="welcome-pick">Pick a radar</button></div>
-      <p class="note">Or tap any radar site on the map.</p>
+      <button class="btn" data-act="search">${ICON.search}<span>Search a place</span></button></div>
+      <p class="note">Or tap any radar site on the map${this.simple ? '. Weather pro? <button type="button" class="linkish" id="welcome-pro">Use Pro mode</button>' : ''}.</p>
       <button class="icon-btn close" data-act="dismiss-welcome" aria-label="Close">${ICON.x}</button>`;
     document.body.appendChild(el);
-    $('#welcome-pick').addEventListener('click', () => { el.remove(); this.openSites(); });
+    $('#welcome-pro')?.addEventListener('click', () => { this.setMode('pro'); el.querySelector('.note').textContent = 'Pro mode on. Tap any radar site on the map.'; });
   }
 
   // ======================================================== misc
@@ -1359,6 +1633,10 @@ function bboxCenter(g) {
 }
 
 const ICON = {
+  search: '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></svg>',
+  pin: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 21s-7-6.2-7-11.5A7 7 0 0 1 19 9.5C19 14.8 12 21 12 21z"/><circle cx="12" cy="9.5" r="2.5"/></svg>',
+  star: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m12 3 2.8 5.8 6.2.9-4.5 4.4 1 6.2L12 17.4l-5.5 2.9 1-6.2L3 9.7l6.2-.9z"/></svg>',
+  starOn: '<svg viewBox="0 0 24 24" aria-hidden="true" class="on"><path d="m12 3 2.8 5.8 6.2.9-4.5 4.4 1 6.2L12 17.4l-5.5 2.9 1-6.2L3 9.7l6.2-.9z" fill="#ffd60a" stroke="#ffd60a"/></svg>',
   x: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg>',
   locate: '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg>',
 };

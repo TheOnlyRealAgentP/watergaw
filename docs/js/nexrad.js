@@ -78,22 +78,36 @@ async function listKeys(prefix, startAfter) {
 
 /** Available frames of one product at one radar, newest last. */
 export class Series {
-  constructor(site3, code) {
+  /** @param {number|null} end  Unix seconds to stop at (history mode), or null for live. */
+  constructor(site3, code, end = null) {
     this.site = site3;
     this.code = code;
+    this.end = end;
     this.prefix = `${site3}_${code}_`;
     this.keys = [];
     this.updated = 0;
     this.error = null;
   }
 
-  get id() { return this.prefix; }
+  get id() { return this.prefix + (this.end || ''); }
 
   /** Fetch new keys. Returns true when the list changed. */
   async refresh(want) {
     const now = Date.now() / 1000;
     let added;
     try {
+      if (this.end) {
+        if (this.keys.length) return false; // the past doesn't change
+        let keys = [];
+        for (const hours of [2, 8, 30]) {
+          keys = (await listKeys(this.prefix, this.prefix + stamp(this.end - hours * 3600))).filter((k) => keyTime(k) <= this.end);
+          if (keys.length >= Math.min(want, 3)) break;
+        }
+        this.keys = keys.slice(-Math.max(want, 1) * 2);
+        this.error = null;
+        this.updated = now;
+        return this.keys.length > 0;
+      }
       if (!this.keys.length) {
         // Recent hours first; widen the window for slow clear-air scans or
         // once-a-day products like the 24-hour rainfall.
@@ -137,26 +151,37 @@ export class SweepStore {
     this.bytes = 0;
     this.workers.forEach((w, i) => {
       w.onmessage = (e) => {
-        const { id, sweep, error } = e.data;
+        const { id, sweep, nowcast, error } = e.data;
         const p = this.pending.get(id);
         if (!p) return;
         this.pending.delete(id);
         this.busy[i]--;
         if (error) p.reject(new Error(error));
-        else p.resolve(sweep);
+        else p.resolve(sweep || nowcast);
       };
     });
   }
 
-  decode(url) {
+  post(msg) {
     let best = 0;
     for (let i = 1; i < this.workers.length; i++) if (this.busy[i] < this.busy[best]) best = i;
     const id = this.nextId++;
     this.busy[best]++;
     return new Promise((resolve, reject) => {
       this.pending.set(id, { resolve, reject });
-      this.workers[best].postMessage({ id, url });
+      this.workers[best].postMessage({ id, ...msg });
     });
+  }
+
+  decode(url) {
+    return this.post({ url });
+  }
+
+  /** Rain nowcast in a worker (sweeps are copied, not transferred). */
+  nowcast(older, newer, leads, fallback) {
+    const pick = (s) => ({ meta: s.meta, codes: s.codes, lut: s.lut, flags: s.flags });
+    const dt = newer.meta.scan_time - older.meta.scan_time;
+    return this.post({ nowcast: { older: pick(older), newer: pick(newer), dt, leads, fallback } });
   }
 
   get(key) {

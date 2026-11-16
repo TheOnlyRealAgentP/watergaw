@@ -1,10 +1,10 @@
 // Watergaw service worker: instant app shell, offline start, cached radar files.
-const VERSION = 'watergaw-1.1.0';
+const VERSION = 'watergaw-1.2.0';
 const SHELL = `${VERSION}-shell`;
 const RADAR = 'watergaw-radar-files';
 const ASSETS = [
   './', 'index.html', 'css/app.css', 'manifest.webmanifest',
-  'js/app.js', 'js/core.js', 'js/decode-worker.js', 'js/nexrad.js', 'js/overlays.js', 'js/palettes.js',
+  'js/app.js', 'js/core.js', 'js/places.js', 'js/decode-worker.js', 'js/nexrad.js', 'js/overlays.js', 'js/palettes.js',
   'js/radar-layer.js', 'js/style.js', 'js/units.js', 'wasm/watergaw_core.wasm', 'data/sites.json',
   'icons/icon.svg', 'icons/icon-192.png',
 ];
