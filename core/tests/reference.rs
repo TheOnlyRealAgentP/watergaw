@@ -1,6 +1,6 @@
 //! Checks the Level III decoder against MetPy (see tools/l3_reference.py).
 
-use outflow_core::level3::{self, FLAG_VALID};
+use watergaw_core::level3::{self, FLAG_VALID};
 use serde_json::Value;
 use std::path::PathBuf;
 

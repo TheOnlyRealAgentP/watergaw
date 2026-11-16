@@ -1,4 +1,4 @@
-//! Outflow core: NEXRAD decoders and radar geometry.
+//! Watergaw core: NEXRAD decoders and radar geometry.
 //!
 //! Compiled to WebAssembly for the web app (see `ffi`), and usable as a normal
 //! Rust library for a native Android build or command-line tools.

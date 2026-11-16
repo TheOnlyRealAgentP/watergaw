@@ -1,11 +1,11 @@
-// Outflow service worker: instant app shell, offline start, cached radar files.
-const VERSION = 'outflow-1.0.1';
+// Watergaw service worker: instant app shell, offline start, cached radar files.
+const VERSION = 'watergaw-1.1.0';
 const SHELL = `${VERSION}-shell`;
-const RADAR = 'outflow-radar-files';
+const RADAR = 'watergaw-radar-files';
 const ASSETS = [
   './', 'index.html', 'css/app.css', 'manifest.webmanifest',
   'js/app.js', 'js/core.js', 'js/decode-worker.js', 'js/nexrad.js', 'js/overlays.js', 'js/palettes.js',
-  'js/radar-layer.js', 'js/style.js', 'js/units.js', 'wasm/outflow_core.wasm', 'data/sites.json',
+  'js/radar-layer.js', 'js/style.js', 'js/units.js', 'wasm/watergaw_core.wasm', 'data/sites.json',
   'icons/icon.svg', 'icons/icon-192.png',
 ];
 const MAX_RADAR_FILES = 240;
@@ -16,7 +16,7 @@ self.addEventListener('install', (e) => {
 
 self.addEventListener('activate', (e) => {
   e.waitUntil((async () => {
-    for (const k of await caches.keys()) if (k.endsWith('-shell') && k !== SHELL) await caches.delete(k);
+    for (const k of await caches.keys()) if (k !== SHELL && k !== RADAR) await caches.delete(k);
     await self.clients.claim();
   })());
 });

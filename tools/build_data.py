@@ -14,7 +14,7 @@ import zipfile
 from pathlib import Path
 
 OUT = Path(__file__).resolve().parent.parent / 'docs' / 'data'
-UA = {'User-Agent': 'outflow-radar data build'}
+UA = {'User-Agent': 'watergaw-radar data build'}
 
 
 def get(url):

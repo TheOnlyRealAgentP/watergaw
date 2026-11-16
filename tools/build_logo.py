@@ -1,11 +1,11 @@
-"""Build the Outflow logo from Hurricane Harvey's landfall radar scan.
+"""Build the Watergaw logo from Hurricane Harvey's landfall radar scan.
 
 The mark is real data: the Corpus Christi radar's (KCRP) lowest-tilt
 reflectivity at 03:04 UTC on 26 Aug 2017, as Harvey came ashore near Rockport
 as a category 4 hurricane. The scan is gridded around the eye, smoothed, given
 a radial fade so the outer rain bands taper into spiral arms, lightly
 magnified at the centre so the eye survives at launcher-icon sizes, and
-contoured into vector bands in Outflow's reflectivity colors.
+contoured into vector bands in Watergaw's reflectivity colors.
 
     python tools/build_logo.py
 
@@ -37,7 +37,7 @@ HALF, RES = 120.0, 0.4  # grid half-width and spacing, km
 
 
 def load_sweep():
-    cache = Path(tempfile.gettempdir()) / 'outflow_KCRP20170826_030439_V06'
+    cache = Path(tempfile.gettempdir()) / 'watergaw_KCRP20170826_030439_V06'
     if not cache.exists():
         urllib.request.urlretrieve(SCAN, cache)
     sweep = Level2File(str(cache)).sweeps[0]
@@ -109,7 +109,7 @@ def build(scale=2.2, rx=112, rings_bg=True):
     glow = f'<path d="{paths[1][2]}" fill="#2fcf68" fill-rule="evenodd" opacity="0.3" filter="url(#glow)"/>'
     body = ''.join(f'<path d="{p}" fill="{c}" fill-rule="evenodd"' + (f' opacity="{o}"' if o < 1 else '') + '/>' for c, o, p in paths)
     return ('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">'
-            '<title>Outflow</title>'
+            '<title>Watergaw</title>'
             '<!-- Hurricane Harvey at landfall: KCRP 0.5° reflectivity, 2017-08-26 03:04 UTC (tools/build_logo.py) -->'
             '<defs><radialGradient id="bg" cx="30%" cy="20%" r="95%"><stop offset="0" stop-color="#1c2b41"/>'
             '<stop offset="0.55" stop-color="#0e1622"/><stop offset="1" stop-color="#06090e"/></radialGradient>'

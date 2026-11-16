@@ -23,7 +23,7 @@ for path in sys.argv[1:]:
     vals = np.asarray(vals, dtype=float)
     code = f.header.code
     if code in (170, 172, 173, 174, 175):
-        vals = vals * 0.01  # Outflow reports rainfall in inches
+        vals = vals * 0.01  # Watergaw reports rainfall in inches
     rng = random.Random(42)
     spots = []
     while len(spots) < 300:

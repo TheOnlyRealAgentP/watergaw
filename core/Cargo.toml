@@ -1,8 +1,8 @@
 [package]
-name = "outflow-core"
+name = "watergaw-core"
 version = "0.1.0"
 edition = "2024"
-description = "Outflow radar core: NEXRAD decoders and radar geometry, compiled to WebAssembly"
+description = "Watergaw radar core: NEXRAD decoders and radar geometry, compiled to WebAssembly"
 license = "MIT"
 publish = false
 

@@ -1,8 +1,8 @@
-// Loads the Rust core (wasm/outflow_core.wasm) and wraps its C ABI.
+// Loads the Rust core (wasm/watergaw_core.wasm) and wraps its C ABI.
 // The same module runs on the main thread (meshes, inspector math) and in the
 // decode workers (see decode-worker.js).
 
-const WASM_URL = new URL('../wasm/outflow_core.wasm', import.meta.url);
+const WASM_URL = new URL('../wasm/watergaw_core.wasm', import.meta.url);
 
 export async function loadCore() {
   let instance;

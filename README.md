@@ -1,12 +1,15 @@
-<img src="docs/icons/icon.svg" width="96" alt="Outflow logo: Hurricane Harvey on radar">
+<img src="docs/icons/icon.svg" width="96" alt="Watergaw logo: Hurricane Harvey on radar">
 
-# Outflow
+# Watergaw
 
 Pro-grade NEXRAD weather radar, free for everyone. No paywall, account, ads or tracking.
 
-**Live:** https://theonlyrealagentp.github.io/outflow/
+*A watergaw is an old Scots word for a faint, broken piece of rainbow seen in the rain,
+long taken as a sign that weather is on the way.*
 
-Outflow draws radar the way professional viewers do: from each radar's own polar
+**Live:** https://theonlyrealagentp.github.io/watergaw/
+
+Watergaw draws radar the way professional viewers do: from each radar's own polar
 scans, decoded on your device and rendered on the GPU. It doesn't use pre-colored
 image tiles. The features that radar apps usually put behind a subscription come
 standard.
@@ -42,7 +45,7 @@ standard.
 
 ```
 core/        Rust: Level III decoder, bzip2, beam geometry, sweep meshes
-             -> compiled to docs/wasm/outflow_core.wasm (~140 KB, no wasm-bindgen)
+             -> compiled to docs/wasm/watergaw_core.wasm (~140 KB, no wasm-bindgen)
 docs/        the site GitHub Pages serves (no build step besides the .wasm)
   js/app.js            state, panels, timeline, inspector, sheets
   js/radar-layer.js    MapLibre custom WebGL2 layer that draws a sweep
@@ -74,7 +77,7 @@ on real files for every supported product (`cargo test`).
 The site runs as-is from `docs/` (any static server). After changing Rust code:
 
 ```
-./build.sh      # cargo test, then rebuild docs/wasm/outflow_core.wasm
+./build.sh      # cargo test, then rebuild docs/wasm/watergaw_core.wasm
 ```
 
 Needs Rust with the `wasm32-unknown-unknown` target
@@ -95,7 +98,7 @@ native networking also opens up Level II data without browser limits.
 The logo is real radar data: Hurricane Harvey making landfall near Rockport, Texas,
 as a category 4 storm, from the Corpus Christi radar's (KCRP) lowest-tilt reflectivity
 at 03:04 UTC on 26 August 2017. `tools/build_logo.py` fetches that scan from the NOAA
-archive and rebuilds every icon. It contours the storm into Outflow's reflectivity
+archive and rebuilds every icon. It contours the storm into Watergaw's reflectivity
 colors, tapers the outer rain bands into spiral arms, and magnifies the eye slightly
 so it stays visible at launcher-icon sizes.
 
@@ -108,7 +111,7 @@ Prediction Center. River gauges and forecasts: National Water Prediction Service
 Satellite: NASA GIBS (GOES ABI band 13). Basemap: OpenFreeMap / OpenStreetMap
 contributors. Counties: US Census Bureau.
 
-> Outflow is an independent project, not affiliated with NOAA or the National Weather
+> Watergaw is an independent project, not affiliated with NOAA or the National Weather
 > Service. Data can be delayed or missing. Don't rely on it alone for life-safety
 > decisions: follow official NWS warnings and local emergency officials.
 

@@ -1,4 +1,4 @@
-// Outflow: pro-grade radar, free for everyone.
+// Watergaw: pro-grade radar, free for everyone.
 // App state, panels, timeline, inspector and sheets.
 
 import { loadCore } from './core.js';
@@ -9,8 +9,8 @@ import { buildStyle, ANCHOR_RADAR } from './style.js';
 import { Overlays, WARNING_TYPES, MRMS_LAYERS, MRMS_LEGEND, MOSAIC_LEGEND, GAUGE_COLORS, esc, mesoRank, hasTvs } from './overlays.js';
 import * as U from './units.js';
 
-const VERSION = '1.0.1';
-const STORE_KEY = 'outflow.v1';
+const VERSION = '1.1.0';
+const STORE_KEY = 'watergaw.v1';
 const $ = (s, el = document) => el.querySelector(s);
 const $$ = (s, el = document) => [...el.querySelectorAll(s)];
 
@@ -88,7 +88,8 @@ class App {
   loadState() {
     const s = structuredClone(DEFAULTS);
     try {
-      const saved = JSON.parse(localStorage.getItem(STORE_KEY) || 'null');
+      // Settings saved before the app was renamed (Outflow) carry over.
+      const saved = JSON.parse(localStorage.getItem(STORE_KEY) || localStorage.getItem('outflow.v1') || 'null');
       if (saved) {
         for (const [k, v] of Object.entries(saved)) {
           if (v && typeof v === 'object' && !Array.isArray(v) && s[k] && typeof s[k] === 'object' && !Array.isArray(s[k])) s[k] = { ...s[k], ...v };
@@ -197,7 +198,7 @@ class App {
   }
 
   onMove(panel, e) {
-    if (this.syncing || !e.originalEvent && !e.outflowUser) return;
+    if (this.syncing || !e.originalEvent && !e.watergawUser) return;
     this.syncing = true;
     const c = panel.map.getCenter();
     const z = panel.map.getZoom();
@@ -1138,7 +1139,7 @@ class App {
         <label class="btn small">Import<input type="file" accept=".pal,.txt,text/plain" data-pal="${k}" hidden></label>
         ${s.palettes[k] ? `<button type="button" class="btn small" data-reset="${k}">Reset</button>` : ''}</div>`).join('')}</div>
       <h4>App</h4>
-      <div class="chips"><button type="button" class="chip" data-act="about">About Outflow & data</button>
+      <div class="chips"><button type="button" class="chip" data-act="about">About Watergaw & data</button>
       ${this.installPrompt ? '<button type="button" class="chip on" data-act="install">Install app</button>' : ''}</div>
       <p class="note">Keyboard: space play/pause · ←/→ frames · ↑/↓ elevation · 1–9 products · S smoothing · L live.</p>`, null, 'settings');
     $('#set-smooth', body).addEventListener('change', (e) => { s.smooth = e.target.checked; this.save(); this.panels.forEach((p) => this.applyLayerOptions(p)); });
@@ -1222,8 +1223,8 @@ class App {
   }
 
   openAbout() {
-    this.openSheet('About Outflow', `
-      <p><b>Pro-grade radar, free for everyone.</b> Outflow draws NEXRAD data the way professional viewers do: straight from each radar's own polar scans, decoded on your device, with no paywall, account, ads or tracking.</p>
+    this.openSheet('About Watergaw', `
+      <p><b>Pro-grade radar, free for everyone.</b> Watergaw draws NEXRAD data the way professional viewers do: straight from each radar's own polar scans, decoded on your device, with no paywall, account, ads or tracking.</p>
       <ul class="feat">
         <li>Super-resolution reflectivity and velocity, six elevation angles</li>
         <li>Storm-relative velocity computed at full resolution with live or manual storm motion</li>
@@ -1238,17 +1239,19 @@ class App {
       <h4>Data</h4>
       <p class="note">NEXRAD Level III from the NOAA Open Data Dissemination program (AWS, Unidata). Warnings: National Weather Service API. Watches, mesoscale discussions, storm attributes, storm reports, the national mosaic and MRMS rainfall tiles: Iowa Environmental Mesonet. Outlooks: Storm Prediction Center. River gauges and forecasts: National Water Prediction Service. Satellite: NASA GIBS. Basemap: OpenFreeMap / OpenStreetMap. Counties: US Census Bureau.</p>
       <h4>Please note</h4>
-      <p class="note">Outflow is an independent project, not affiliated with NOAA or the National Weather Service. Data can be delayed or missing. Don't rely on it alone for life-safety decisions: follow official NWS warnings and local emergency officials.</p>
+      <p class="note">Watergaw is an independent project, not affiliated with NOAA or the National Weather Service. Data can be delayed or missing. Don't rely on it alone for life-safety decisions: follow official NWS warnings and local emergency officials.</p>
+      <h4>Why “Watergaw”?</h4>
+      <p class="note">A watergaw is an old Scots word for a faint, broken piece of rainbow seen in the rain, long taken as a sign that weather is on the way. Radar paints rain in rainbow colors too.</p>
       <h4>The logo</h4>
-      <p class="note">It's real radar data: Hurricane Harvey coming ashore near Rockport, Texas, as seen by the Corpus Christi radar (KCRP) at 03:04 UTC on 26 August 2017, contoured in Outflow's reflectivity colors.</p>
-      <p class="note">Version ${VERSION} · <a href="https://github.com/TheOnlyRealAgentP/outflow" target="_blank" rel="noopener">Source code (MIT)</a></p>`, null, 'about');
+      <p class="note">It's real radar data: Hurricane Harvey coming ashore near Rockport, Texas, as seen by the Corpus Christi radar (KCRP) at 03:04 UTC on 26 August 2017, contoured in Watergaw's reflectivity colors.</p>
+      <p class="note">Version ${VERSION} · <a href="https://github.com/TheOnlyRealAgentP/watergaw" target="_blank" rel="noopener">Source code (MIT)</a></p>`, null, 'about');
   }
 
   showWelcome() {
     const el = document.createElement('div');
     el.id = 'welcome';
     el.className = 'welcome';
-    el.innerHTML = `<img class="welcome-logo" src="icons/icon.svg" alt="" width="84" height="84"><h2>Outflow</h2><p>Pro-grade radar, free for everyone.</p>
+    el.innerHTML = `<img class="welcome-logo" src="icons/icon.svg" alt="" width="84" height="84"><h2>Watergaw</h2><p>Pro-grade radar, free for everyone.</p>
       <div class="welcome-actions"><button class="btn primary" data-act="locate">${ICON.locate}<span>Use my location</span></button>
       <button class="btn" id="welcome-pick">Pick a radar</button></div>
       <p class="note">Or tap any radar site on the map.</p>
@@ -1264,7 +1267,7 @@ class App {
     await new Promise((r) => setTimeout(r, 350));
     const url = location.href;
     try {
-      if (navigator.share && matchMedia('(hover: none)').matches) await navigator.share({ title: 'Outflow radar', url });
+      if (navigator.share && matchMedia('(hover: none)').matches) await navigator.share({ title: 'Watergaw radar', url });
       else { await navigator.clipboard.writeText(url); this.toast('Link copied'); }
     } catch { /* cancelled */ }
   }
@@ -1361,8 +1364,8 @@ const ICON = {
 };
 
 const app = new App();
-window.outflow = app;
+window.watergaw = app;
 app.start().catch((e) => {
   console.error(e);
-  document.body.insertAdjacentHTML('beforeend', `<div class="fatal"><h2>Outflow couldn’t start</h2><p>${esc(e.message)}</p><p>It needs a current browser with WebGL 2 and WebAssembly.</p></div>`);
+  document.body.insertAdjacentHTML('beforeend', `<div class="fatal"><h2>Watergaw couldn’t start</h2><p>${esc(e.message)}</p><p>It needs a current browser with WebGL 2 and WebAssembly.</p></div>`);
 });
