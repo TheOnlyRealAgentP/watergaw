@@ -10,8 +10,10 @@ import { Overlays, WARNING_TYPES, MRMS_LAYERS, MRMS_LEGEND, MOSAIC_LEGEND, GAUGE
 import { searchPlaces, summarize, intensityWord } from './places.js';
 import * as U from './units.js';
 
-const VERSION = '1.4.0';
+const VERSION = '1.5.0';
 const FORECAST_LEADS = [10, 20, 30, 40, 50, 60].map((m) => m * 60);
+// Level II moment behind each product that has one.
+const L2_MOMENT = { REF: 'REF', VEL: 'VEL', SRV: 'VEL', ZDR: 'ZDR', CC: 'RHO' };
 // Everyday mode shows these products with plain names.
 const SIMPLE_PRODUCTS = [['REF', 'Radar'], ['PST', 'Rain totals']];
 const STORE_KEY = 'watergaw.v1';
@@ -373,6 +375,7 @@ class App {
       if (!p.layer) continue;
       const s = this.panelSeries(p);
       if (!fr || !s) { p.wantKey = null; p.sweep = null; p.layer.setSweep(null); continue; }
+      if (this.l2View && p === this.activePanel) continue;
       if (fr.sweep && s.code === 'N0B') {
         p.wantKey = fr.key;
         p.sweep = fr.sweep;
@@ -411,6 +414,7 @@ class App {
   }
 
   togglePlay(force) {
+    if (force !== false && this.l2View) this.exitL2();
     this.playing = force ?? !this.playing;
     $('#btn-play').classList.toggle('on', this.playing);
     $('#btn-play').setAttribute('aria-label', this.playing ? 'Pause' : 'Play loop');
@@ -520,6 +524,7 @@ class App {
   }
 
   setProduct(id, tilt) {
+    this.exitL2();
     const cfg = this.state.panels[this.state.active];
     const prod = PRODUCT[id];
     cfg.p = id;
@@ -568,6 +573,7 @@ class App {
   setSite(id, { keepView = false } = {}) {
     const site = this.sites.find((s) => s.id === id);
     if (!site) return;
+    this.exitL2();
     this.site = site;
     this.state.site = id;
     this.save();
@@ -1373,7 +1379,7 @@ class App {
       case 'clear-focus': return this.clearFocus();
       case 'mode-pro': this.closeSheet(); return this.setMode('pro');
       case 'mode-simple': this.closeSheet(); return this.setMode('simple');
-      case 'back-live': return this.setHistory(null);
+      case 'back-live': if (this.exitL2()) return; return this.setHistory(null);
       case 'close-inspect': return this.closeInspect();
       case 'clear-filter': delete this.state.filters[this.state.panels[this.state.active].p]; this.save(); this.applyPanelProducts(); return;
       case 'locate': this.closeSheet(); $('#welcome')?.remove(); return this.locate();
@@ -1484,7 +1490,9 @@ class App {
         <b>${p.short}</b><span>${p.name}</span></button>`).join('')}</div>
       <p class="about-prod"><b>${prod.name}.</b> ${prod.about}${panelNote}</p>
       ${prod.volume ? '' : `<h4>Elevation</h4><div class="seg wide" id="sheet-tilts">${prod.codes.map((c, i) => `<button type="button" role="radio" aria-checked="${i === cfg.t}" data-t="${i}">${TILT_HINT[i]}</button>`).join('')}</div>
-        <p class="note">Lowest scan first. Exact angles depend on the radar's scanning mode and show once loaded.</p>`}
+        <p class="note">Lowest scan first. Exact angles depend on the radar's scanning mode and show once loaded.</p>
+        ${L2_MOMENT[prod.id] ? `<h4>All elevations (Level II)</h4><div class="chips" id="l2-cuts"><button type="button" class="chip" data-l2load="1">Load every elevation from the latest full scan</button></div>
+        <p class="note">Up to 18 angles at full resolution, straight from the radar's complete volume scan.</p>` : ''}`}
       ${prod.srv ? this.srmControls() : ''}
       ${presets.length && !prod.categorical ? `<h4>Highlight a range</h4><div class="chips">${presets.map(([n, lo, hi], i) => `<button type="button" class="chip ${f && f[0] === lo && f[1] === hi ? 'on' : ''}" data-preset="${i}">${n}</button>`).join('')}
         ${f ? '<button type="button" class="chip" data-preset="-1">Show everything</button>' : ''}</div>
@@ -1500,6 +1508,62 @@ class App {
       this.openProducts();
     }));
     this.bindSrm(body);
+    body.addEventListener('click', async (e) => {
+      const load = e.target.closest('[data-l2load]');
+      const cutB = e.target.closest('[data-l2cut]');
+      if (load) {
+        load.textContent = 'Loading the full volume scan…';
+        try {
+          await this.loadL2Cuts(prod.id);
+        } catch (err) { load.textContent = `Couldn't load: ${err.message}`; }
+      }
+      if (cutB) this.showL2Cut(+cutB.dataset.l2cut, prod.id);
+    });
+  }
+
+  async loadL2Cuts(productId) {
+    const fr = this.timeline?.[this.frameIndex];
+    const at = this.historyEnd || (!this.live && fr && !fr.sweep ? fr.time + 600 : null);
+    const key = await latestLevel2(this.site.id, at);
+    if (!key) throw new Error('no Level II volume found');
+    if (!this.l2) this.l2 = new Level2();
+    const sum = await this.l2.load(key);
+    const want = L2_MOMENT[productId];
+    const cuts = sum.cuts.filter((c) => c.moment === want).sort((a, b) => a.elevation - b.elevation);
+    const seen = new Set();
+    const list = cuts.filter((c) => { const k = c.elevation.toFixed(1); if (seen.has(k)) return false; seen.add(k); return true; });
+    const el = $('#l2-cuts');
+    if (el) el.innerHTML = list.map((c) => `<button type="button" class="chip ${this.l2View?.i === c.i ? 'on' : ''}" data-l2cut="${c.i}">${c.elevation.toFixed(1)}°</button>`).join('');
+  }
+
+  async showL2Cut(i, productId) {
+    try {
+      const s = await this.l2.cut(i);
+      s.key = `L2:${this.l2.key}:${i}`;
+      this.togglePlay(false);
+      this.l2View = { i, sweep: s, productId };
+      const panel = this.activePanel;
+      panel.sweep = s;
+      panel.layer?.setSweep(s);
+      this.applyLayerOptions(panel);
+      const b = $('#history-banner');
+      b.hidden = false;
+      $('span', b).textContent = `Level II · ${s.meta.elevation.toFixed(1)}° · ${U.clock(s.meta.scan_time, this.state.utc)}`;
+      $('button', b).textContent = 'Back to loop';
+      $$('#l2-cuts [data-l2cut]').forEach((x) => x.classList.toggle('on', +x.dataset.l2cut === i));
+      this.updatePanelTags();
+    } catch (e) { this.toast(`Couldn't show that elevation: ${e.message}`); }
+  }
+
+  exitL2() {
+    if (!this.l2View) return false;
+    this.l2View = null;
+    const b = $('#history-banner');
+    b.hidden = !this.historyEnd;
+    $('button', b).textContent = 'Back to live';
+    if (this.historyEnd) $('span', b).textContent = `Replaying ${U.dateTime(this.historyEnd, this.state.utc)}`;
+    this.showFrame();
+    return true;
   }
 
   srmControls() {
@@ -1711,18 +1775,19 @@ class App {
     this.openSheet('About Watergaw', `
       <p><b>Pro-grade radar, free for everyone.</b> Watergaw draws NEXRAD data the way professional viewers do: straight from each radar's own polar scans, decoded on your device, with no paywall, account, ads or tracking.</p>
       <ul class="feat">
-        <li>Super-resolution reflectivity and velocity, six elevation angles</li>
-        <li>Storm-relative velocity computed at full resolution with live or manual storm motion</li>
+        <li>What's coming to your places, in plain words, with the next hour of rain projected ahead</li>
+        <li>Place search, saved places and alerts for warnings and incoming rain</li>
+        <li>Lightning, hurricanes (NHC), hail and rotation tracks (MRMS), river levels and rain totals</li>
+        <li>Super-resolution reflectivity and velocity, and every elevation from the full Level II scan</li>
+        <li>Storm-relative velocity at full resolution with live or manual storm motion</li>
         <li>Dual-pol: correlation coefficient, ZDR, KDP and hydrometeor classification</li>
-        <li>VIL, echo tops, and 1-hour, 3-hour, 24-hour and storm-total rainfall</li>
-        <li>Up to four synchronized panels with a linked cursor</li>
-        <li>Storm tracks with hail, rotation and arrival times for your location</li>
-        <li>Warnings with damage-threat tags, watches, SPC outlooks and storm reports</li>
-        <li>River gauges with flood status and forecast hydrographs, plus MRMS rainfall</li>
+        <li>Vertical cross-sections through any storm</li>
+        <li>Up to four synchronized panels, long loops, and replay of any date since 2022</li>
+        <li>Storm tracks with arrival times, warnings with damage-threat tags, watches, SPC outlooks and storm reports</li>
         <li>Smooth or raw gates, range highlighting and GR-compatible color tables</li>
       </ul>
       <h4>Data</h4>
-      <p class="note">NEXRAD Level III from the NOAA Open Data Dissemination program (AWS, Unidata). Warnings: National Weather Service API. Watches, mesoscale discussions, storm attributes, storm reports, the national mosaic and MRMS rainfall tiles: Iowa Environmental Mesonet. Outlooks: Storm Prediction Center. River gauges and forecasts: National Water Prediction Service. Satellite: NASA GIBS. Basemap: OpenFreeMap / OpenStreetMap. Counties: US Census Bureau.</p>
+      <p class="note">NEXRAD Level II and III and MRMS from the NOAA Open Data Dissemination program (AWS, Unidata). Lightning: NOAA nowCOAST (NLDN/GLD360). Hurricanes: National Hurricane Center. Place search: OpenStreetMap (Photon). Warnings: National Weather Service API. Watches, mesoscale discussions, storm attributes, storm reports, the national mosaic and MRMS rainfall tiles: Iowa Environmental Mesonet. Outlooks: Storm Prediction Center. River gauges and forecasts: National Water Prediction Service. Satellite: NASA GIBS. Basemap: OpenFreeMap / OpenStreetMap. Counties: US Census Bureau.</p>
       <h4>Please note</h4>
       <p class="note">Watergaw is an independent project, not affiliated with NOAA or the National Weather Service. Data can be delayed or missing. Don't rely on it alone for life-safety decisions: follow official NWS warnings and local emergency officials.</p>
       <h4>Why “Watergaw”?</h4>

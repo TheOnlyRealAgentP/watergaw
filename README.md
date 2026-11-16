@@ -16,42 +16,47 @@ standard.
 
 ## Features
 
-- **Native radar data.** Super-resolution reflectivity (0.25 km × 0.5°) and velocity
-  at six elevation angles, straight from NEXRAD Level III files.
-- **Storm-relative velocity at full resolution**, computed per pixel on the GPU from
-  super-res velocity. Storm motion comes automatically from the radar's tracked cells,
-  or you can set it by hand.
+Every feature that other radar apps put behind a subscription is free here.
+
+**For everyone (Simple mode, the default)**
+- **Search any place** (city, address or ZIP) and **save places** (home, school, family) to check in one tap.
+- **What's coming:** a plain-language card for your location or any place, such as "Heavy rain likely
+  around 4:35 PM (in about 20 min)", with a next-hour bar chart, active warnings and approaching storms.
+- **Future radar:** the next hour of rain, projected from the radar's own scans (shown as a forecast).
+- **Alerts** when a warning covers your location or a saved place, or rain is about to start (while the app is open).
+- **Lightning**, **hurricanes** (NHC cones, tracks, coastal watches/warnings, 7-day outlook), **hail today**,
+  **river levels** and **rain totals**, all with friendly labels.
+
+**For weather pros (Pro mode)**
+- **Native radar data:** super-resolution reflectivity (0.25 km × 0.5°) and velocity at six Level III
+  elevations, plus **every elevation (up to 18) from the full Level II volume**.
+- **Storm-relative velocity at full resolution**, computed per pixel on the GPU (storm motion automatic or manual).
 - **Dual-pol:** correlation coefficient, ZDR, KDP and hydrometeor classification.
-- **Derived products:** digital VIL, enhanced echo tops, and dual-pol 1-hour, 3-hour,
-  24-hour and storm-total rainfall.
-- **Up to four synchronized panels** with a linked crosshair, for example REF, SRV, CC and ZDR.
-- **Smooth or raw.** Smoothing interpolates the data values, not the colors, and
-  skips gates without data. Raw mode shows every gate.
-- **Highlight a range** to hide everything except, say, CC 0.2–0.82 (debris) or 60+ dBZ (hail cores).
-- **GR-compatible color tables:** import any `.pal` file used by GRLevelX, Supercell Wx or RadarOmega.
-- **Inspector:** value, azimuth, range, beam height and beam width under the cursor or a tap.
-- **Storm tracks:** cell IDs, hail size and probability, rotation and TVS, 60-minute
-  forecast paths, and an arrival time for your location.
-- **Warnings** with damage-threat and detection tags (PDS, tornado emergency), per-type
-  toggles, and a banner when you're inside one. Watches, mesoscale discussions, the SPC
-  Day 1 outlook and local storm reports are also included.
-- **Water:** NWPS river gauges colored by flood status, with a forecast hydrograph and
-  flood stages for each gauge, plus MRMS 1-, 24-, 48- and 72-hour rainfall.
-- **Context:** national mosaic when zoomed out, GOES infrared satellite, range rings,
-  county lines, and dark, light or satellite basemaps.
-- **Installable** (PWA) and works offline once loaded. Every view has a shareable URL.
+- **Vertical cross-sections:** tap two points to slice through a storm (reflectivity, velocity, ZDR, CC).
+- **Hail and rotation tracks** (MRMS MESH and 0–2 km azimuthal shear) over 1, 6 or 24 hours.
+- **Derived products:** digital VIL, enhanced echo tops, and 1-hour, 3-hour, 24-hour and storm-total rainfall.
+- **Up to four synchronized panels** with a linked crosshair; loops up to 60 frames; **replay any date since 2022**.
+- **Smooth or raw gates**, range highlighting, and GR-compatible `.pal` color tables.
+- **Inspector:** value, azimuth, range, beam height and width, plus hail and rotation values from MRMS.
+- **Storm tracks** with hail, rotation and arrival times. **Warnings** with damage-threat tags, watches,
+  mesoscale discussions, the SPC outlook and storm reports.
+- **Water:** NWPS river gauges with forecast hydrographs and flood stages, plus MRMS rainfall totals.
+- Installable (PWA), works offline once loaded, shareable links.
 
 ## How it works
 
 ```
-core/        Rust: Level III decoder, bzip2, beam geometry, sweep meshes
-             -> compiled to docs/wasm/watergaw_core.wasm (~140 KB, no wasm-bindgen)
+core/        Rust: Level III and Level II decoders, GRIB2/PNG (MRMS), rain nowcast,
+             cross-sections, beam geometry, sweep meshes
+             -> compiled to docs/wasm/watergaw_core.wasm (~310 KB, no wasm-bindgen)
 docs/        the site GitHub Pages serves (no build step besides the .wasm)
   js/app.js            state, panels, timeline, inspector, sheets
   js/radar-layer.js    MapLibre custom WebGL2 layer that draws a sweep
   js/nexrad.js         product catalog, S3 listings, worker pool, frame cache
   js/decode-worker.js  fetches + decodes radar files off the main thread (WASM)
-  js/overlays.js       warnings, storms, reports, SPC, gauges, rasters, rings
+  js/overlays.js       warnings, storms, reports, SPC, gauges, lightning, hurricanes,
+                       MRMS tracks, rasters, rings
+  js/places.js         place search and plain-language "what's coming" summaries
   js/palettes.js       color tables in GR .pal format + parser
   js/style.js          radar-tuned basemap styles
   sw.js                offline shell and cached radar files
@@ -69,8 +74,13 @@ tools/       data builders (radar sites, counties) and the MetPy reference expor
    colors it from the palette. Vertices are placed with the 4/3-earth beam model.
    Matrices are built relative to the radar in float64, so deep zooms don't jitter.
 
-The decoder is tested gate-for-gate against [MetPy](https://unidata.github.io/MetPy/)
-on real files for every supported product (`cargo test`).
+The Level III decoder is tested gate-for-gate against [MetPy](https://unidata.github.io/MetPy/)
+on real files for every supported product, the Level II decoder matches MetPy cut for cut, the
+GRIB2 reader matches pygrib/eccodes, and the nowcast recovers a known storm motion (`cargo test`).
+
+**Rain nowcast.** Two recent scans go onto a 2 km grid, block matching finds how the rain moved,
+and semi-Lagrangian advection carries the latest scan forward in the radar's own polar layout,
+so forecasts render and inspect exactly like real scans.
 
 ## Building
 
@@ -104,7 +114,8 @@ so it stays visible at launcher-icon sizes.
 
 ## Data sources
 
-NEXRAD Level III: NOAA Open Data Dissemination (AWS, Unidata). Warnings: National
+NEXRAD Level II and III and MRMS: NOAA Open Data Dissemination (AWS, Unidata). Lightning: NOAA
+nowCOAST (NLDN/GLD360). Hurricanes: National Hurricane Center. Place search: OpenStreetMap via Photon. Warnings: National
 Weather Service API. Watches, mesoscale discussions, storm attributes, storm reports,
 national mosaic and MRMS rainfall tiles: Iowa Environmental Mesonet. Outlooks: Storm
 Prediction Center. River gauges and forecasts: National Water Prediction Service.
