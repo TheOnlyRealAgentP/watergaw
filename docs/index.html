@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Outflow Radar</title>
+<meta name="description" content="Pro-grade NEXRAD weather radar, free for everyone: super-res reflectivity and velocity, storm-relative velocity, dual-pol, storm tracks, warnings, rainfall and river gauges.">
+<meta name="theme-color" content="#0b0e13">
+<meta name="color-scheme" content="dark light">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icons/icon-192.png">
+<meta property="og:title" content="Outflow Radar">
+<meta property="og:description" content="Pro-grade weather radar, free for everyone.">
+<meta property="og:image" content="https://theonlyrealagentp.github.io/outflow/icons/icon-512.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="preconnect" href="https://unidata-nexrad-level3.s3.amazonaws.com" crossorigin>
+<link rel="preconnect" href="https://tiles.openfreemap.org" crossorigin>
+<link rel="stylesheet" href="https://unpkg.com/maplibre-gl@5.24.0/dist/maplibre-gl.css">
+<link rel="stylesheet" href="css/app.css">
+<link rel="modulepreload" href="js/app.js">
+<script src="https://unpkg.com/maplibre-gl@5.24.0/dist/maplibre-gl.js" defer></script>
+<script type="module" src="js/app.js"></script>
+</head>
+<body>
+<div id="panels" class="panels layout-1"></div>
+
+<header class="topbar">
+  <button type="button" class="chip site-chip" id="btn-site" aria-label="Choose radar site">
+    <svg class="radar-ico" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="2"/><path d="M12 12 19 5M5.6 18.4a9 9 0 1 1 12.8 0M8.5 15.5a5 5 0 1 1 7 0"/></svg>
+    <span class="site-text"><b id="site-id">Radar</b><span id="site-name">Pick a site</span></span>
+  </button>
+  <button type="button" class="chip prod-chip" id="btn-product" aria-label="Choose product"><b id="prod-name">REF</b><span id="prod-tilt"></span>
+    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m7 10 5 5 5-5"/></svg></button>
+  <div class="status" id="status" data-age="none" role="status"><i class="dot"></i><span id="age">Loading…</span></div>
+  <div class="spacer"></div>
+  <button type="button" class="icon-btn" id="btn-alerts" aria-label="Active warnings" title="Active warnings">
+    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3 2 20h20L12 3z"/><path d="M12 10v4M12 17v.5"/></svg>
+    <span class="badge" id="alert-count" hidden></span></button>
+  <button type="button" class="icon-btn" id="btn-settings" aria-label="Settings" title="Settings">
+    <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg></button>
+</header>
+
+<div class="fabs">
+  <button type="button" class="icon-btn fab" id="btn-layers" aria-label="Layers" title="Layers">
+    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3 2 8l10 5 10-5-10-5zM2 13l10 5 10-5M2 17.5l10 5 10-5"/></svg></button>
+  <div class="menu-wrap">
+    <button type="button" class="icon-btn fab" id="btn-layout" aria-label="Panels" title="Panels">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M12 4v16M3 12h18"/></svg></button>
+    <div class="menu" id="layout-menu" role="radiogroup" aria-label="Panel layout" hidden>
+      <button type="button" role="radio" data-layout="1"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="5" width="16" height="14" rx="2"/></svg>One</button>
+      <button type="button" role="radio" data-layout="2"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="5" width="16" height="14" rx="2"/><path d="M12 5v14"/></svg>Two</button>
+      <button type="button" role="radio" data-layout="4"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="5" width="16" height="14" rx="2"/><path d="M12 5v14M4 12h16"/></svg>Four</button>
+    </div>
+  </div>
+  <button type="button" class="icon-btn fab" id="btn-locate" aria-label="My location" title="My location">
+    <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg></button>
+  <button type="button" class="icon-btn fab" id="btn-share" aria-label="Share this view" title="Share this view">
+    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 15V3m0 0-4 4m4-4 4 4M5 13v6a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-6"/></svg></button>
+</div>
+
+<div class="arrival" id="arrival" hidden></div>
+<div class="inspect" id="inspect" hidden></div>
+<div class="hud" id="hud" hidden></div>
+
+<footer class="dock">
+  <div class="legend" id="legend"></div>
+  <div class="prod-row">
+    <div class="strip" id="product-strip" role="radiogroup" aria-label="Product"></div>
+    <div class="seg tilts" id="tilts" role="radiogroup" aria-label="Elevation"></div>
+  </div>
+  <div class="timeline">
+    <button type="button" class="icon-btn small" id="btn-prev" aria-label="Previous frame"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 6l-6 6 6 6"/></svg></button>
+    <button type="button" class="icon-btn play" id="btn-play" aria-label="Play loop"><svg viewBox="0 0 24 24" aria-hidden="true"><path class="i-play" d="M8 5v14l11-7z"/><path class="i-pause" d="M7 5h4v14H7zM13 5h4v14h-4z"/></svg></button>
+    <button type="button" class="icon-btn small" id="btn-next" aria-label="Next frame"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg></button>
+    <div class="track"><input type="range" id="scrub" min="0" max="0" value="0" aria-label="Frame"><div class="ticks" id="ticks"></div></div>
+    <span class="frame-time" id="frame-time">--:--</span>
+    <button type="button" class="live" id="btn-live" title="Jump to the latest scan">LIVE</button>
+  </div>
+</footer>
+
+<div class="scrim" id="scrim" hidden></div>
+<aside class="sheet" id="sheet" hidden aria-labelledby="sheet-title">
+  <div class="sheet-head"><span class="grab" aria-hidden="true"></span><h3 id="sheet-title"></h3>
+    <button type="button" class="icon-btn" id="sheet-close" aria-label="Close"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg></button></div>
+  <div class="sheet-body" id="sheet-body"></div>
+</aside>
+<div class="toast" id="toast" role="status" hidden></div>
+<noscript><div class="fatal"><h2>Outflow needs JavaScript</h2><p>Radar data is decoded in your browser.</p></div></noscript>
+</body>
+</html>

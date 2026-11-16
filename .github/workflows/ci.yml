@@ -1,0 +1,19 @@
+name: CI
+on:
+  push:
+    branches: [main]
+  pull_request:
+jobs:
+  core:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - name: Decoder tests (checked against MetPy)
+        run: cargo test --manifest-path core/Cargo.toml
+      - name: WebAssembly build
+        run: cargo build --release --target wasm32-unknown-unknown --manifest-path core/Cargo.toml
+      - name: Syntax-check the web app
+        run: for f in docs/js/*.js docs/sw.js; do node --check "$f"; done
