@@ -81,19 +81,29 @@ pub struct Sweep {
     pub extra: Vec<(&'static str, f64)>,
     /// The file's own radials, kept for verification.
     pub raw: Vec<RawRadial>,
+    /// Text the radar attached (e.g. "No precipitation detected since ..." on null products).
+    pub note: String,
 }
 
 struct Spec {
     name: &'static str,
     units: &'static str,
     gate_km: f64,
+    /// Coverage used when a product arrives with no radial data (null product).
+    range_km: f64,
     has_elevation: bool,
     has_delta_time: bool,
 }
 
 fn spec(code: i16) -> Option<Spec> {
     let s = |name, units, gate_km, has_elevation, has_delta_time| {
-        Some(Spec { name, units, gate_km, has_elevation, has_delta_time })
+        let range_km = match code {
+            94 | 134 | 153 => 460.0,
+            135 => 345.0,
+            99 | 154 | 155 | 159 | 161 | 163 | 165 => 300.0,
+            _ => 230.0,
+        };
+        Some(Spec { name, units, gate_km, range_km, has_elevation, has_delta_time })
     };
     match code {
         94 => s("Base Reflectivity", "dBZ", 1.0, true, false),
@@ -385,28 +395,57 @@ pub fn decode(data: &[u8]) -> Result<Sweep, Error> {
     let _block_len = r.i32()?;
     let nlayers = r.i16()?;
     let mut radials = None;
+    let mut notes: Vec<String> = Vec::new();
     for _ in 0..nlayers.max(0) {
-        if r.i16()? != -1 {
-            return Err(Error::Format("bad layer divider"));
+        if r.remaining() < 6 || r.i16()? != -1 {
+            break;
         }
         let layer_len = r.i32()? as usize;
-        let layer_end = r.pos() + layer_len;
-        while r.pos() + 2 <= layer_end.min(buf.len()) {
+        let layer_end = (r.pos() + layer_len).min(buf.len());
+        while r.pos() + 4 <= layer_end {
             let code = r.u16()?;
-            if code == 16 {
-                radials = Some(read_digital_radials(&mut r)?);
-                break;
+            match code {
+                16 => {
+                    radials = Some(read_digital_radials(&mut r)?);
+                    break;
+                }
+                // Text packets: length, then position (and colour for 8), then characters.
+                1 | 2 | 8 => {
+                    let len = r.u16()? as usize;
+                    let blk = r.take(len)?;
+                    let skip = if code == 8 { 6 } else { 4 };
+                    if blk.len() > skip {
+                        let t = String::from_utf8_lossy(&blk[skip..]).trim().to_string();
+                        if !t.is_empty() {
+                            notes.push(t);
+                        }
+                    }
+                }
+                // Other packets that start with a byte length: skip them.
+                3..=7 | 9..=12 | 15 | 19..=26 => {
+                    let len = r.u16()? as usize;
+                    r.skip(len)?;
+                }
+                _ => break,
             }
-            return Err(Error::Format("unsupported symbology packet"));
         }
         if radials.is_some() {
             break;
         }
+        r = Reader::at(buf, layer_end)?;
     }
-    let (first_bin, nbins, raw) = radials.ok_or(Error::Format("no radial data packet"))?;
-    if raw.is_empty() || nbins == 0 {
-        return Err(Error::Format("empty radial packet"));
-    }
+    // A product with no radial packet is a "null product" (nothing to show, e.g.
+    // no rain since the storm total reset): return an empty sweep.
+    let (first_bin, nbins, raw) = match radials {
+        Some(x) if !x.2.is_empty() && x.1 > 0 => x,
+        _ => {
+            let rows = if matches!(h.product_code, 153 | 154 | 155) { 720 } else { 360 };
+            let delta = 360.0 / rows as f64;
+            let gates = (sp.range_km / sp.gate_km).round() as usize;
+            let raw = (0..rows).map(|i| RawRadial { start_deg: i as f64 * delta, delta_deg: delta, codes: vec![0; gates] }).collect();
+            (0, gates, raw)
+        }
+    };
 
     let (lut_value, lut_flag, kind) = build_lut(&h);
     let elevation_deg = if sp.has_elevation { h.dep[2] as f64 * 0.1 } else { 0.0 };
@@ -437,6 +476,7 @@ pub fn decode(data: &[u8]) -> Result<Sweep, Error> {
         extra: extras(&h),
         header: h,
         raw,
+        note: notes.first().cloned().unwrap_or_default(),
     })
 }
 

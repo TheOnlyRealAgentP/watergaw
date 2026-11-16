@@ -61,7 +61,7 @@ pub fn sweep_json(s: &level3::Sweep) -> String {
         "{{\"code\":{},\"name\":\"{}\",\"units\":\"{}\",\"categorical\":{},\"site\":\"{}\",\
 \"lat\":{},\"lon\":{},\"height_ft\":{},\"vcp\":{},\"op_mode\":{},\"vol_time\":{},\"scan_time\":{},\
 \"gen_time\":{},\"elevation\":{},\"elevation_num\":{},\"supplemental\":{},\"gate_km\":{},\
-\"first_gate_km\":{},\"gates\":{},\"rows\":{},\"az0\":{},\"delta\":{},\"radials\":{},\"extra\":{{",
+\"first_gate_km\":{},\"gates\":{},\"rows\":{},\"az0\":{},\"delta\":{},\"radials\":{},\"note\":\"{}\",\"extra\":{{",
         h.product_code,
         esc(s.name),
         esc(s.units),
@@ -85,6 +85,7 @@ pub fn sweep_json(s: &level3::Sweep) -> String {
         num(s.az0),
         num(s.delta),
         s.raw.len(),
+        esc(&s.note),
     );
     for (i, (k, v)) in s.extra.iter().enumerate() {
         let _ = write!(j, "{}\"{}\":{}", if i > 0 { "," } else { "" }, k, num(*v));

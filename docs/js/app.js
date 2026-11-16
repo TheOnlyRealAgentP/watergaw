@@ -10,7 +10,7 @@ import { Overlays, WARNING_TYPES, MRMS_LAYERS, MRMS_LEGEND, MOSAIC_LEGEND, GAUGE
 import { searchPlaces, summarize, intensityWord } from './places.js';
 import * as U from './units.js';
 
-const VERSION = '1.5.0';
+const VERSION = '1.5.1';
 const FORECAST_LEADS = [10, 20, 30, 40, 50, 60].map((m) => m * 60);
 // Level II moment behind each product that has one.
 const L2_MOMENT = { REF: 'REF', VEL: 'VEL', SRV: 'VEL', ZDR: 'ZDR', CC: 'RHO' };
@@ -670,7 +670,8 @@ class App {
     }
     if (prod.kind === 'precip') {
       const vals = [0.1, 0.25, 0.5, 1, 2, 3, 4, 6, 10];
-      return stepLegend(`${prod.name} · ${u.rain}${filt}`, vals.map((v) => [rgbCss(colorAt(pal, v)), u.rain === 'mm' ? U.fmt(v * 25.4) : String(v)]));
+      const note = this.activePanel?.sweep?.meta.note;
+      return stepLegend(`${prod.name} · ${u.rain}${filt}${note ? ` <span class="lg-note">· ${esc(note.replace(/\s*\.\s*$/, ''))}</span>` : ''}`, vals.map((v) => [rgbCss(colorAt(pal, v)), u.rain === 'mm' ? U.fmt(v * 25.4) : String(v)]));
     }
     let lo, hi, ticks, unit;
     switch (prod.kind) {

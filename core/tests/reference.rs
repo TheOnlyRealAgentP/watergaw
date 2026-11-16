@@ -13,6 +13,17 @@ fn close(a: f64, b: f64) -> bool {
 }
 
 #[test]
+fn null_product_decodes_as_empty() {
+    // KMTX storm total with no rain since the last reset: only text packets.
+    let data = std::fs::read(data_dir().join("MTX_DTA_null.bin")).unwrap();
+    let s = level3::decode(&data).unwrap();
+    assert_eq!(s.header.product_code, 172);
+    assert!(s.codes.iter().all(|&c| c == 0));
+    assert_eq!((s.rows, s.gates), (360, 920));
+    assert!(s.note.starts_with("No precipitation detected"), "{}", s.note);
+}
+
+#[test]
 fn level3_matches_metpy() {
     let mut checked = 0;
     for entry in std::fs::read_dir(data_dir()).unwrap() {
