@@ -7,7 +7,7 @@ Pro-grade NEXRAD weather radar, free for everyone. No paywall, account, ads or t
 *A watergaw is an old Scots word for a faint, broken piece of rainbow seen in the rain,
 long taken as a sign that weather is on the way.*
 
-**Live:** https://theonlyrealagentp.github.io/watergaw/
+**Live:** https://watergawradar.com
 
 Watergaw draws radar the way professional viewers do: from each radar's own polar
 scans, decoded on your device and rendered on the GPU. It doesn't use pre-colored
