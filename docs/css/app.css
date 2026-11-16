@@ -44,7 +44,7 @@ body {
 }
 button, input, select { font: inherit; color: inherit; }
 button { cursor: pointer; }
-svg:not(.hydro) { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; flex: none; }
+svg:not(.hydro):not(.fcsvg) { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; flex: none; }
 a { color: var(--accent); }
 code { font: 12px ui-monospace, SFMono-Regular, Menlo, monospace; background: var(--line); padding: 1px 4px; border-radius: 4px; }
 [hidden] { display: none !important; }
@@ -431,6 +431,52 @@ body.mode-simple .timeline .play { width: 52px; height: 52px; }
 .xs-wrap canvas { display: block; width: 100%; }
 @media (min-width: 760px) { .sheet[data-kind="xsect"] { width: min(720px, calc(100vw - 90px)); } }
 body.picking .maplibregl-canvas { cursor: crosshair !important; }
+.seg.src { flex: none; background: transparent; border: 1px solid var(--line-strong); }
+.seg.src button { min-width: 0; }
+body.src-all #product-strip, body.src-all #tilts, body.src-all .prod-chip { display: none !important; }
+.now-fc { margin: -2px 0 8px; font-size: 13.5px; color: var(--muted); }
+.now-btns { display: flex; gap: 6px; margin-top: 8px; }
+.fc-top { display: flex; align-items: baseline; gap: 10px; margin: 2px 0 10px; }
+.fc-top .big { font-size: 40px; line-height: 1; }
+.fc-top b { font-size: 15px; }
+.fc-chart { margin: 10px 0 4px; }
+.fc-h { display: flex; justify-content: space-between; align-items: baseline; font-size: 12.5px; gap: 8px; flex-wrap: wrap; }
+.fc-h span { color: var(--muted); font-size: 11px; display: flex; align-items: center; gap: 4px; }
+.fc-h i { display: inline-block; width: 12px; height: 4px; border-radius: 2px; margin-left: 6px; }
+.k-temp { background: #ff9f0a; } .k-feel { background: #ffd8a0; } .k-pop { background: rgba(90,170,255,0.35); } .k-qpf { background: #3d8bff; }
+.k-snw { background: #e6e9ff; } .k-wind { background: #64d2ff; } .k-gust { background: #bf5af2; }
+.fcsvg { width: 100%; height: auto; display: block; margin-top: 4px; }
+.fcsvg text { fill: var(--muted); stroke: none; font-size: 9px; }
+.fcsvg .ann { fill: var(--text); font-weight: 700; font-size: 10px; }
+.fcsvg .dl { fill: var(--text); font-weight: 600; }
+.fcsvg .g { stroke: var(--line); stroke-width: 0.6; }
+.fcsvg .day { stroke: var(--line-strong); stroke-width: 0.8; stroke-dasharray: 2 2; }
+.fcsvg .temp { fill: none; stroke: #ff9f0a; stroke-width: 2.2; }
+.fcsvg .feel { fill: none; stroke: #ffd8a0; stroke-width: 1.4; stroke-dasharray: 3 2; }
+.fcsvg .pop { fill: rgba(90, 170, 255, 0.28); }
+.fcsvg .qpf { fill: #3d8bff; }
+.fcsvg .snw { fill: #e6e9ff; }
+.fcsvg .wind { fill: none; stroke: #64d2ff; stroke-width: 2; }
+.fcsvg .gust { fill: none; stroke: #bf5af2; stroke-width: 1.2; stroke-dasharray: 2 2; }
+.fcsvg .arw { fill: var(--text); }
+.fc-sum { margin: 2px 0 0; font-size: 12px; color: var(--muted); }
+.fc-alerts { display: flex; flex-direction: column; gap: 6px; margin: 6px 0; }
+.fc-alert { border-left: 4px solid var(--c); background: var(--line); border-radius: 8px; padding: 6px 10px; }
+.fc-alert summary { cursor: pointer; display: flex; flex-direction: column; font-size: 13px; }
+.fc-alert summary span { color: var(--muted); font-size: 11.5px; }
+.days { display: flex; flex-direction: column; margin-top: 6px; }
+.day-row { border-top: 1px solid var(--line); }
+.day-row summary { display: grid; grid-template-columns: 74px 26px 34px 34px 1fr 34px; align-items: center; gap: 6px; padding: 8px 0; cursor: pointer; list-style: none; font-variant-numeric: tabular-nums; }
+.day-row summary::-webkit-details-marker { display: none; }
+.day-row .dn { font-weight: 600; font-size: 13.5px; }
+.day-row .de { font-size: 18px; }
+.day-row .dp { color: #64b5ff; font-size: 11.5px; font-weight: 600; }
+.day-row .dl { color: var(--muted); text-align: right; }
+.day-row .dh { font-weight: 600; }
+.day-row .dr { position: relative; height: 6px; border-radius: 3px; background: var(--line); }
+.day-row .dr i { position: absolute; top: 0; bottom: 0; border-radius: 3px; background: linear-gradient(90deg, #64d2ff, #ffd60a, #ff9f0a); }
+.day-row p { margin: 0 0 10px; font-size: 13px; color: var(--muted); }
+@media (min-width: 760px) { .sheet[data-kind="forecast"] { width: min(560px, calc(100vw - 90px)); } }
 .lg-ends { display: flex; justify-content: space-between; font-size: 10.5px; color: var(--muted); margin-top: 2px; }
 @media (max-width: 520px) {
   .fc-banner { top: calc(var(--top) + 92px); }

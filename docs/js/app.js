@@ -8,9 +8,10 @@ import { RadarLayer } from './radar-layer.js';
 import { buildStyle, ANCHOR_RADAR } from './style.js';
 import { Overlays, WARNING_TYPES, MRMS_LAYERS, MRMS_LEGEND, MOSAIC_LEGEND, GAUGE_COLORS, TRACKS, TRACK_WINDOWS, esc, mesoRank, hasTvs } from './overlays.js';
 import { searchPlaces, summarize, intensityWord } from './places.js';
+import { loadForecast, charts, days, alertChips, summaryLine, emoji, tempOf } from './forecast.js';
 import * as U from './units.js';
 
-const VERSION = '1.5.1';
+const VERSION = '1.6.0';
 const FORECAST_LEADS = [10, 20, 30, 40, 50, 60].map((m) => m * 60);
 // Level II moment behind each product that has one.
 const L2_MOMENT = { REF: 'REF', VEL: 'VEL', SRV: 'VEL', ZDR: 'ZDR', CC: 'RHO' };
@@ -22,6 +23,7 @@ const $$ = (s, el = document) => [...el.querySelectorAll(s)];
 
 const DEFAULTS = {
   site: null,
+  source: 'station',
   mode: 'simple',
   forecast: true,
   notify: false,
@@ -129,6 +131,7 @@ class App {
       const [z, lat, lng] = h.get('v').split('/').map(Number);
       if ([z, lat, lng].every(Number.isFinite)) s.view = { zoom: z, lat, lng };
     }
+    s.units = { ...U.DEFAULT_UNITS, ...s.units };
     s.panels = s.panels.slice(0, 4);
     while (s.panels.length < 4) s.panels.push({ ...DEFAULTS.panels[s.panels.length] });
     s.active = Math.min(s.active, s.layout - 1);
@@ -240,9 +243,11 @@ class App {
   updateSiteVisibility() {
     const z = this.primaryMap?.getZoom() ?? 8;
     const mode = this.state.overlays.mosaic;
-    const show = mode !== 'auto' || z >= this.siteZoomThreshold;
+    const all = this.state.source === 'all';
+    const show = !all && (mode !== 'auto' || z >= this.siteZoomThreshold);
     for (const p of this.panels) p.layer?.setVisible(show);
-    this.mosaicView = mode === 'on' || (mode === 'auto' && z < this.siteZoomThreshold);
+    this.mosaicView = all || mode === 'on' || (mode === 'auto' && z < this.siteZoomThreshold);
+    document.body.classList.toggle('src-all', all);
     this.updateStatus();
     this.renderLegend();
   }
@@ -351,6 +356,15 @@ class App {
   }
 
   rebuildTimeline(jumpLive) {
+    if (this.state.source === 'all') {
+      const prevK = this.timeline?.[this.frameIndex]?.mosaic;
+      this.timeline = this.overlays.mosaicFrames().map((time, k) => ({ key: `mosaic-${k}`, time, mosaic: k }));
+      this.realCount = this.timeline.length;
+      this.frameIndex = jumpLive || this.live || prevK == null ? this.timeline.length - 1 : prevK;
+      this.renderTimeline();
+      this.showFrame();
+      return;
+    }
     const master = this.site ? this.panelSeries(this.activePanel) : null;
     const real = master ? master.frames(this.state.frames) : [];
     const fc = this.forecastApplies() && real.length && this.forecast.base === real[real.length - 1].key ? this.forecast.frames : [];
@@ -371,6 +385,12 @@ class App {
   /** Point each panel at the frame closest to (not after) the timeline time. */
   showFrame() {
     const fr = this.timeline?.[this.frameIndex];
+    if (fr?.mosaic != null) {
+      this.overlays.showMosaicFrame(fr.mosaic);
+      this.renderTimeLabel();
+      this.updateStatus();
+      return;
+    }
     for (const p of this.panels) {
       if (!p.layer) continue;
       const s = this.panelSeries(p);
@@ -459,7 +479,7 @@ class App {
   renderTicks() {
     const el = $('#ticks');
     const fr = this.timeline || [];
-    el.innerHTML = fr.map((f, i) => `<i class="${f.sweep ? 'fc' : this.store.peek(f.key) ? 'ok' : ''} ${i === this.frameIndex ? 'cur' : ''}"></i>`).join('');
+    el.innerHTML = fr.map((f, i) => `<i class="${f.sweep ? 'fc' : f.mosaic != null || this.store.peek(f.key) ? 'ok' : ''} ${i === this.frameIndex ? 'cur' : ''}"></i>`).join('');
   }
 
   renderTimeLabel() {
@@ -598,6 +618,7 @@ class App {
   }
 
   updateSiteChip() {
+    this.updateSourceSeg?.();
     $('#site-id').textContent = this.site ? this.site.id : 'Radar';
     $('#site-name').textContent = this.site ? this.site.name : 'Pick a site';
   }
@@ -611,8 +632,8 @@ class App {
   updateStatus() {
     const el = $('#status');
     const txt = $('#age');
-    if (this.mosaicView && this.overlays?.mosaicTime && (!this.site || (this.primaryMap?.getZoom() ?? 9) < this.siteZoomThreshold)) {
-      txt.textContent = `Mosaic ${U.clock(this.overlays.mosaicTime, this.state.utc)}`;
+    if (this.mosaicView && this.overlays?.mosaicTime && (this.state.source === 'all' || !this.site || (this.primaryMap?.getZoom() ?? 9) < this.siteZoomThreshold)) {
+      txt.textContent = this.state.source === 'all' ? `All radars · ${U.ago(this.overlays.mosaicTime)}` : `Mosaic ${U.clock(this.overlays.mosaicTime, this.state.utc)}`;
       el.dataset.age = ageClass(this.overlays.mosaicTime);
       return;
     }
@@ -625,7 +646,37 @@ class App {
     el.dataset.age = ageClass(t);
   }
 
-  onMosaicTime() { this.updateStatus(); }
+  onMosaicTime() {
+    if (this.state.source === 'all') this.rebuildTimeline();
+    this.updateStatus();
+  }
+
+  setSource(v) {
+    if (v === this.state.source) return;
+    this.state.source = v;
+    this.save();
+    this.exitL2();
+    this.togglePlay(false);
+    this.live = true;
+    if (v === 'station' && !this.site) {
+      const c = this.primaryMap.getCenter();
+      const near = this.nearestSites(c.lat, c.lng)[0];
+      if (near) this.setSite(near.site.id, { keepView: true });
+    }
+    this.updateSiteVisibility();
+    this.overlays.applyAll();
+    this.rebuildTimeline(true);
+    this.renderProductStrip();
+    this.renderLegend();
+    this.updateSourceSeg();
+  }
+
+  updateSourceSeg() {
+    const all = this.state.source === 'all';
+    $$('#src-seg button').forEach((b) => b.setAttribute('aria-checked', String((b.dataset.v === 'all') === all)));
+    const st = $('#src-station');
+    if (st) st.textContent = this.site ? (this.simple ? `Station · ${this.site.name.split(/[,/]/)[0]}` : `Station · ${this.site.id}`) : 'Station';
+  }
 
   // ======================================================== legend
 
@@ -634,8 +685,9 @@ class App {
     if (!el) return;
     const o = this.state.overlays;
     const parts = [];
-    if (this.mosaicView && (!this.site || (this.primaryMap?.getZoom() ?? 9) < this.siteZoomThreshold)) {
-      parts.push(stepLegend('National mosaic · dBZ', MOSAIC_LEGEND.map(([v, c]) => [c, String(v)])));
+    if (this.mosaicView && (this.state.source === 'all' || !this.site || (this.primaryMap?.getZoom() ?? 9) < this.siteZoomThreshold)) {
+      if (this.simple) parts.push(stepLegend('All radars · rain and storms', [[20, 'Light'], [30, 'Moderate'], [40, 'Heavy'], [50, 'Very heavy'], [60, 'Hail']].map(([v, l]) => [MOSAIC_LEGEND.find((m) => m[0] === v)[1], l])));
+      else parts.push(stepLegend('All radars · composite reflectivity · dBZ', MOSAIC_LEGEND.map(([v, c]) => [c, String(v)])));
     } else if (this.activePanel) {
       parts.push(this.productLegend());
     }
@@ -835,11 +887,13 @@ class App {
       geo = `<div class="sub">${Math.round(first.pol.az)}° ${U.compass(first.pol.az)} · ${U.fmtU(U.distance(first.pol.ground, u.distance), 1)} from ${this.site.id}<br>
         Beam centre ${U.fmtU(U.height(first.pol.height, u.height))} above the radar, ${U.fmtU(U.distance(beamW, u.distance), 1)} wide</div>`;
     }
+    this.inspectPoint = { name: 'This spot', lat: lngLat.lat, lon: lngLat.lng };
     const extra = ['hail', 'rotation'].map((k) => this.overlays.trackAt(k, lngLat.lat, lngLat.lng)).filter(Boolean);
     card.innerHTML = `<button class="icon-btn close" data-act="close-inspect" aria-label="Close">${ICON.x}</button>
       <div class="vals">${vals.map((v) => `<div><b>${this.simple ? '' : v.prod.short}</b><span>${esc(v.text)}</span></div>`).join('') || '<div><span>No radar loaded here</span></div>'}
       ${extra.map((t) => `<div><b>MRMS</b><span>${esc(t)}</span></div>`).join('')}</div>
       ${geo}<div class="sub coords">${lngLat.lat.toFixed(4)}, ${lngLat.lng.toFixed(4)}</div>
+      <div class="now-btns"><button class="btn small" data-act="forecast-here">${ICON.chart}<span>Forecast here</span></button></div>
       ${chips.length ? `<div class="chips">${chips.join('')}</div>` : ''}`;
     card.hidden = false;
     this.placePin(lngLat);
@@ -975,8 +1029,44 @@ class App {
         ${f.me ? '' : `<button class="icon-btn tiny" data-act="save-place" aria-label="${saved ? 'Remove from my places' : 'Save to my places'}" title="${saved ? 'Saved' : 'Save place'}">${saved ? ICON.starOn : ICON.star}</button>`}
         <button class="icon-btn tiny" data-act="clear-focus" aria-label="Close">${ICON.x}</button></div>
       <p class="now-headline">${esc(sum.headline)}</p>
+      <p class="now-fc" id="now-fc">${this.fcLine && this.fcLine.key === `${f.lat},${f.lon}` ? esc(this.fcLine.text) : ''}</p>
       ${bars ? `<div class="bars" aria-label="Next hour">${bars}</div>` : ''}
-      ${sum.lines.map((l, i) => `<button class="now-line ${l.cls}" data-line="${i}">${esc(l.text)}</button>`).join('')}`;
+      ${sum.lines.map((l, i) => `<button class="now-line ${l.cls}" data-line="${i}">${esc(l.text)}</button>`).join('')}
+      <div class="now-btns"><button class="btn small" data-act="forecast">${ICON.chart}<span>Forecast &amp; charts</span></button></div>`;
+    const key = `${f.lat},${f.lon}`;
+    if (!this.fcLine || this.fcLine.key !== key || Date.now() - this.fcLine.at > 15 * 60e3) {
+      this.fcLine = { key, at: Date.now(), text: '' };
+      loadForecast(f.lat, f.lon).then((fc) => {
+        if (this.fcLine.key !== key) return;
+        this.fcLine.text = summaryLine(fc, this.state.units);
+        const el = $('#now-fc');
+        if (el) el.textContent = this.fcLine.text;
+      }, () => {});
+    }
+  }
+
+  async openForecast(place) {
+    const p = place || this.focus;
+    if (!p) return;
+    const body = this.openSheet(`Forecast · ${p.name}`, '<p class="note">Loading the National Weather Service forecast…</p>', null, 'forecast');
+    try {
+      const f = await loadForecast(p.lat, p.lon);
+      if ($('#sheet').dataset.kind !== 'forecast') return;
+      const u = this.state.units;
+      const now = f.temp.find((v) => v != null);
+      const first = f.periods[0];
+      body.innerHTML = `
+        <div class="fc-top"><span class="big">${emoji(first?.shortForecast, first && !first.isDaytime)}</span>
+          <div><b>${now != null ? `${Math.round(tempOf(now, u.temp))}°${u.temp}` : ''} · ${esc(first?.shortForecast || '')}</b>
+          <div class="note">${esc(first?.detailedForecast || '')}</div></div></div>
+        ${alertChips(f, this.state.utc)}
+        ${charts(f, u, this.state.utc, 48)}
+        <h4>Next 7 days</h4>
+        ${days(f, u)}
+        <p class="note">From the National Weather Service${f.office ? ` (${esc(f.office)} office)` : ''}${f.place ? `, for the area near ${esc(f.place)}` : ''}. Shaded bands mark active alerts.</p>`;
+    } catch (e) {
+      body.innerHTML = `<p class="note">${esc(e.message)}</p>`;
+    }
   }
 
   focusOn(place, { fly = true } = {}) {
@@ -1274,6 +1364,7 @@ class App {
     }
     this.save();
     this.applyMode();
+    this.updateSourceSeg();
     this.renderProductStrip();
     this.renderLegend();
     this.renderFocus();
@@ -1324,6 +1415,8 @@ class App {
     new ResizeObserver(() => document.documentElement.style.setProperty('--dock-h', `${dock.offsetHeight}px`)).observe(dock);
     $('#btn-site').addEventListener('click', () => this.openSites());
     $('#btn-search').addEventListener('click', () => this.openSearch());
+    segBind($('#src-seg'), (v) => this.setSource(v));
+    this.updateSourceSeg();
     $('#btn-xsect').addEventListener('click', () => this.startXsect());
     $('#btn-product').addEventListener('click', () => this.openProducts());
     $('#btn-layers').addEventListener('click', () => this.openLayers());
@@ -1377,6 +1470,8 @@ class App {
       case 'search': $('#welcome')?.remove(); return this.openSearch();
       case 'xs-new': this.closeSheet(); return this.startXsect();
       case 'save-place': return this.toggleSave();
+      case 'forecast': return this.openForecast();
+      case 'forecast-here': return this.openForecast(this.inspectPoint);
       case 'clear-focus': return this.clearFocus();
       case 'mode-pro': this.closeSheet(); return this.setMode('pro');
       case 'mode-simple': this.closeSheet(); return this.setMode('simple');
@@ -1660,7 +1755,7 @@ class App {
 
   openSettings() {
     const s = this.state;
-    const unitSeg = (k) => `<div class="field"><span>${{ speed: 'Wind speed', distance: 'Distance', height: 'Height', rain: 'Rainfall' }[k]}</span><div class="seg" data-unit="${k}">${U.UNIT_OPTIONS[k].map(([v, l]) => `<button type="button" role="radio" aria-checked="${s.units[k] === v}" data-v="${v}">${l}</button>`).join('')}</div></div>`;
+    const unitSeg = (k) => `<div class="field"><span>${{ speed: 'Wind speed', distance: 'Distance', height: 'Height', rain: 'Rainfall', temp: 'Temperature' }[k]}</span><div class="seg" data-unit="${k}">${U.UNIT_OPTIONS[k].map(([v, l]) => `<button type="button" role="radio" aria-checked="${s.units[k] === v}" data-v="${v}">${l}</button>`).join('')}</div></div>`;
     const pals = ['REF', 'VEL', 'CC', 'ZDR', 'KDP', 'HC', 'VIL', 'ET', 'PRECIP'];
     const histVal = this.historyEnd ? new Date((this.historyEnd - new Date().getTimezoneOffset() * 60) * 1000).toISOString().slice(0, 16) : '';
     const body = this.openSheet('Settings', `
@@ -1678,7 +1773,7 @@ class App {
       <div class="field"><span>Frames</span><div class="seg" id="set-frames">${[6, 12, 20, 30, 60].map((n) => `<button type="button" role="radio" aria-checked="${s.frames === n}" data-v="${n}">${n}</button>`).join('')}</div></div>
       <div class="field"><span>Speed</span><div class="seg" id="set-speed">${[[0.5, 'Slow'], [1, 'Normal'], [2, 'Fast']].map(([v, l]) => `<button type="button" role="radio" aria-checked="${s.speed === v}" data-v="${v}">${l}</button>`).join('')}</div></div>
       <h4>Units</h4>
-      ${['speed', 'distance', 'height', 'rain'].map(unitSeg).join('')}
+      ${['temp', 'speed', 'distance', 'height', 'rain'].map(unitSeg).join('')}
       <h4>Color tables</h4>
       <p class="note">Import any GR-format <code>.pal</code> color table (the format GRLevelX, Supercell Wx and RadarOmega use).</p>
       <div class="pal-list">${pals.map((k) => `<div class="pal-row"><span class="pal-name">${k}</span><span class="pal-bar" style="background:${this.palBar(k)}"></span>
@@ -1910,6 +2005,7 @@ function bboxCenter(g) {
 }
 
 const ICON = {
+  chart: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 20h18M6 16v-5M11 16V8M16 16v-3M20 16V6"/></svg>',
   search: '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></svg>',
   pin: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 21s-7-6.2-7-11.5A7 7 0 0 1 19 9.5C19 14.8 12 21 12 21z"/><circle cx="12" cy="9.5" r="2.5"/></svg>',
   star: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m12 3 2.8 5.8 6.2.9-4.5 4.4 1 6.2L12 17.4l-5.5 2.9 1-6.2L3 9.7l6.2-.9z"/></svg>',

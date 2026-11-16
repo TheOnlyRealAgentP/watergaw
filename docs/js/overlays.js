@@ -201,9 +201,12 @@ export class Overlays {
       map.addSource('ov-sat', { type: 'raster', tiles: [sat], tileSize: 256, maxzoom: 6, attribution: 'GOES imagery: NASA GIBS / NOAA' });
       map.addLayer({ id: 'ov-sat', type: 'raster', source: 'ov-sat', paint: { 'raster-opacity': 0.65, 'raster-fade-duration': 0 } }, before);
     }
-    if (!map.getSource('ov-mosaic')) {
-      map.addSource('ov-mosaic', { type: 'raster', tiles: [this.mosaicUrl()], tileSize: 256, maxzoom: 8, attribution: 'Mosaic: Iowa Environmental Mesonet' });
-      map.addLayer({ id: 'ov-mosaic', type: 'raster', source: 'ov-mosaic', paint: { 'raster-opacity': 0.85, 'raster-fade-duration': 0 } }, before);
+    // National mosaic: 12 frames, 5 minutes apart, stacked so the loop can switch instantly.
+    for (let k = 0; k < 12; k++) {
+      const id = `ov-mosaic-${k}`;
+      if (map.getSource(id)) continue;
+      map.addSource(id, { type: 'raster', tiles: [this.mosaicUrl(k)], tileSize: 256, maxzoom: 8, ...(k === 11 ? { attribution: 'Mosaic: Iowa Environmental Mesonet' } : {}) });
+      map.addLayer({ id, type: 'raster', source: id, layout: { visibility: 'none' }, paint: { 'raster-opacity': 0, 'raster-fade-duration': 0 } }, before);
     }
     if (!map.getSource('ov-lightning')) {
       // Above the radar so strikes show on top of storms.
@@ -258,8 +261,16 @@ export class Overlays {
     this.vis(map, ['ov-track-hail'], o.hail && o.hail !== 'off');
     this.vis(map, ['ov-trop-outlook', 'ov-trop-outlook-line', 'ov-trop-cone', 'ov-trop-cone-line', 'ov-trop-ww', 'ov-trop-line', 'ov-trop-line-past', 'ov-trop-pts', 'ov-trop-pts-label', 'ov-trop-pts-time'], o.tropical);
     this.vis(map, ['ov-mrms'], !!MRMS_LAYERS[o.mrms]);
-    const mosaicOn = o.mosaic === 'on' || (o.mosaic === 'auto' && z < this.app.siteZoomThreshold);
-    this.vis(map, ['ov-mosaic'], mosaicOn);
+    const all = this.app.state.source === 'all';
+    const mosaicOn = all || o.mosaic === 'on' || (o.mosaic === 'auto' && z < this.app.siteZoomThreshold);
+    const cur = all ? (this.mosaicFrame ?? 11) : 11;
+    for (let k = 0; k < 12; k++) {
+      const id = `ov-mosaic-${k}`;
+      if (!map.getLayer(id)) continue;
+      // In "all radars" mode every frame loads (hidden) so the loop is instant.
+      map.setLayoutProperty(id, 'visibility', mosaicOn && (all || k === 11) ? 'visible' : 'none');
+      map.setPaintProperty(id, 'raster-opacity', mosaicOn && k === cur ? 0.88 : 0);
+    }
   }
 
   applyAll() {
@@ -517,8 +528,22 @@ export class Overlays {
 
   // ---------------------------------------------------------------- rasters
 
-  mosaicUrl() {
-    return `${IEM}/cache/tile.py/1.0.0/nexrad-n0q-900913/{z}/{x}/{y}.png?v=${this.mosaicTime || 0}`;
+  mosaicUrl(k = 11) {
+    const layer = k === 11 ? 'nexrad-n0q-900913' : `nexrad-n0q-900913-m${String(5 * (11 - k)).padStart(2, '0')}m`;
+    return `${IEM}/cache/tile.py/1.0.0/${layer}/{z}/{x}/{y}.png?v=${this.mosaicTime || 0}`;
+  }
+
+  /** Valid times of the 12 mosaic frames, oldest first. */
+  mosaicFrames() {
+    if (!this.mosaicTime) return [];
+    return Array.from({ length: 12 }, (_, k) => this.mosaicTime - 300 * (11 - k));
+  }
+
+  showMosaicFrame(k) {
+    this.mosaicFrame = k;
+    for (const map of this.maps) {
+      for (let j = 0; j < 12; j++) if (map.getLayer(`ov-mosaic-${j}`)) map.setPaintProperty(`ov-mosaic-${j}`, 'raster-opacity', j === k ? 0.88 : 0);
+    }
   }
 
   async loadMosaicTime() {
@@ -527,7 +552,7 @@ export class Overlays {
     if (t && t !== this.mosaicTime) {
       const first = !this.mosaicTime;
       this.mosaicTime = t;
-      if (!first) this.reinstallRaster('ov-mosaic');
+      if (!first) for (const map of this.maps) for (let k = 0; k < 12; k++) map.getSource(`ov-mosaic-${k}`)?.setTiles([this.mosaicUrl(k)]);
       this.app.onMosaicTime?.(t);
     }
   }

@@ -75,6 +75,10 @@
 <footer class="dock">
   <div class="legend" id="legend"></div>
   <div class="prod-row">
+    <div class="seg src" id="src-seg" role="radiogroup" aria-label="Which radar to show">
+      <button type="button" role="radio" data-v="all" title="Every radar in the country, blended into one seamless map">All radars</button>
+      <button type="button" role="radio" data-v="station" id="src-station" title="One radar station's own full-resolution scans, with every product">Station</button>
+    </div>
     <div class="strip" id="product-strip" role="radiogroup" aria-label="Product"></div>
     <div class="seg tilts pro-only" id="tilts" role="radiogroup" aria-label="Elevation"></div>
   </div>

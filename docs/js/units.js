@@ -5,9 +5,10 @@ export const UNIT_OPTIONS = {
   distance: [['mi', 'miles'], ['km', 'kilometres'], ['nm', 'nautical miles']],
   height: [['ft', 'feet'], ['m', 'metres']],
   rain: [['in', 'inches'], ['mm', 'millimetres']],
+  temp: [['F', '°F'], ['C', '°C']],
 };
 
-export const DEFAULT_UNITS = { speed: 'kt', distance: 'mi', height: 'ft', rain: 'in' };
+export const DEFAULT_UNITS = { speed: 'kt', distance: 'mi', height: 'ft', rain: 'in', temp: 'F' };
 
 const SPEED = { kt: [1.943844, 'kt'], mph: [2.236936, 'mph'], ms: [1, 'm/s'], kmh: [3.6, 'km/h'] };
 const DIST = { mi: [0.621371, 'mi'], km: [1, 'km'], nm: [0.539957, 'nm'] };
