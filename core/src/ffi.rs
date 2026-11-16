@@ -280,3 +280,73 @@ pub unsafe extern "C" fn of_grib2_crop(ptr: *const u8, len: usize, lat_n: f64, l
         Err(e) => blob([format!("{{\"error\":\"{}\"}}", esc(&e.to_string())).into_bytes(), vec![], vec![], vec![]]),
     }
 }
+
+thread_local! {
+    static VOLUME: std::cell::RefCell<Option<crate::level2::Volume>> = const { std::cell::RefCell::new(None) };
+}
+
+/// Decode a Level II (Archive II) volume and keep it for cross-sections.
+/// Parts: JSON summary of the volume and its cuts.
+///
+/// # Safety
+/// `ptr..ptr+len` must be readable memory.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn of_level2_load(ptr: *const u8, len: usize) -> *mut Blob {
+    let data = unsafe { std::slice::from_raw_parts(ptr, len) };
+    match crate::level2::decode(data, &["REF", "VEL", "ZDR", "RHO"]) {
+        Ok(v) => {
+            let mut j = format!(
+                "{{\"site\":\"{}\",\"time\":{},\"vcp\":{},\"lat\":{},\"lon\":{},\"height_m\":{},\"cuts\":[",
+                esc(&v.site), num(v.time), v.vcp, num(v.lat), num(v.lon), num(v.height_m)
+            );
+            for (i, c) in v.cuts.iter().enumerate() {
+                let _ = write!(j, "{}{{\"i\":{},\"number\":{},\"moment\":\"{}\",\"elevation\":{},\"rows\":{},\"gates\":{}}}",
+                    if i > 0 { "," } else { "" }, i, c.number, esc(String::from_utf8_lossy(&c.moment).trim()), num(c.elevation), c.rows, c.gates);
+            }
+            j.push_str("]}");
+            VOLUME.with(|cell| *cell.borrow_mut() = Some(v));
+            blob([j.into_bytes(), vec![], vec![], vec![]])
+        }
+        Err(e) => blob([format!("{{\"error\":\"{}\"}}", esc(&e.to_string())).into_bytes(), vec![], vec![], vec![]]),
+    }
+}
+
+/// Vertical cross-section of the loaded volume (moment: 0 REF, 1 VEL, 2 ZDR, 3 RHO).
+/// Parts: JSON (beam elevations), f32 values nx*nz (top row first).
+#[unsafe(no_mangle)]
+pub extern "C" fn of_level2_xsect(moment: u32, lat_a: f64, lon_a: f64, lat_b: f64, lon_b: f64, nx: u32, nz: u32, top_km: f64) -> *mut Blob {
+    let name = ["REF", "VEL", "ZDR", "RHO"].get(moment as usize).copied().unwrap_or("REF");
+    VOLUME.with(|cell| match cell.borrow().as_ref() {
+        Some(v) => {
+            let vals = v.cross_section(name, (lat_a, lon_a), (lat_b, lon_b), nx as usize, nz as usize, top_km);
+            let elevs: Vec<String> = v.cuts_of(name).iter().map(|c| format!("{:.2}", c.elevation)).collect();
+            blob([format!("{{\"beams\":[{}]}}", elevs.join(",")).into_bytes(), f32_bytes(&vals), vec![], vec![]])
+        }
+        None => blob([b"{\"error\":\"no volume loaded\"}".to_vec(), vec![], vec![], vec![]]),
+    })
+}
+
+/// One cut of the loaded volume as a sweep the map renderer can draw.
+/// Parts: JSON metadata, codes, lookup values (256 f32), lookup flags.
+#[unsafe(no_mangle)]
+pub extern "C" fn of_level2_cut(index: u32) -> *mut Blob {
+    VOLUME.with(|cell| {
+        let b = cell.borrow();
+        let Some(v) = b.as_ref() else { return blob([b"{\"error\":\"no volume loaded\"}".to_vec(), vec![], vec![], vec![]]) };
+        let Some(c) = v.cuts.get(index as usize) else { return blob([b"{\"error\":\"no such cut\"}".to_vec(), vec![], vec![], vec![]]) };
+        let mut lut = [f32::NAN; 256];
+        let mut flags = [1u8; 256];
+        for i in 2..256 {
+            lut[i] = (i as f32 - c.offset) / c.scale;
+            flags[i] = 0;
+        }
+        if &c.moment == b"VEL" { flags[1] = 2; }
+        let name = String::from_utf8_lossy(&c.moment).trim().to_string();
+        let meta = format!(
+            "{{\"code\":0,\"name\":\"Level II {}\",\"units\":\"\",\"categorical\":false,\"site\":\"{}\",\"lat\":{},\"lon\":{},\"height_ft\":{},\"vcp\":{},\"op_mode\":0,\"vol_time\":{},\"scan_time\":{},\"gen_time\":{},\"elevation\":{},\"elevation_num\":{},\"supplemental\":0,\"gate_km\":{},\"first_gate_km\":{},\"gates\":{},\"rows\":{},\"az0\":{},\"delta\":{},\"radials\":{},\"extra\":{{}}}}",
+            name, esc(&v.site), num(v.lat), num(v.lon), num(v.height_m * 3.28084), v.vcp, num(v.time), num(c.time), num(c.time), num(c.elevation), c.number,
+            num(c.gate_km), num(c.first_km), c.gates, c.rows, num(c.az0), num(c.delta), c.rows
+        );
+        blob([meta.into_bytes(), c.codes.clone(), f32_bytes(&lut), flags.to_vec()])
+    })
+}

@@ -118,7 +118,7 @@ export class Overlays {
     this.maps.add(map);
     const add = (id, layer, before) => { if (!map.getLayer(id)) map.addLayer({ id, ...layer }, before && map.getLayer(before) ? before : undefined); };
     const src = (id, def) => { if (!map.getSource(id)) map.addSource(id, def); };
-    for (const name of ['spc', 'watch', 'mcd', 'warn', 'rings', 'storms', 'tracks', 'lsr', 'gauges', 'sites', 'trop-outlook', 'trop-cone', 'trop-ww', 'trop-line', 'trop-pts']) {
+    for (const name of ['spc', 'watch', 'mcd', 'warn', 'rings', 'storms', 'tracks', 'lsr', 'gauges', 'sites', 'trop-outlook', 'trop-cone', 'trop-ww', 'trop-line', 'trop-pts', 'xs']) {
       src(`ov-${name}`, { type: 'geojson', data: this.data[name] || EMPTY });
     }
     // Rasters sit under the radar.
@@ -178,6 +178,10 @@ export class Overlays {
     add('ov-trop-pts-time', { type: 'symbol', source: 'ov-trop-pts', minzoom: 4,
       layout: { 'text-field': ['get', 'when'], 'text-font': ['Noto Sans Regular'], 'text-size': 10.5, 'text-offset': [0, 1.5], 'text-anchor': 'top' },
       paint: { 'text-color': '#ffffff', 'text-halo-color': 'rgba(0,0,0,0.9)', 'text-halo-width': 1.3 } });
+    add('ov-xs-casing', { type: 'line', source: 'ov-xs', filter: ['==', ['geometry-type'], 'LineString'], paint: { 'line-color': '#000', 'line-width': 6, 'line-opacity': 0.7 } });
+    add('ov-xs', { type: 'line', source: 'ov-xs', filter: ['==', ['geometry-type'], 'LineString'], paint: { 'line-color': '#ffffff', 'line-width': 3 } });
+    add('ov-xs-pts', { type: 'circle', source: 'ov-xs', filter: ['==', ['geometry-type'], 'Point'], paint: { 'circle-radius': 9, 'circle-color': '#ffffff', 'circle-stroke-color': '#000', 'circle-stroke-width': 2 } });
+    add('ov-xs-lbl', { type: 'symbol', source: 'ov-xs', filter: ['==', ['geometry-type'], 'Point'], layout: { 'text-field': ['get', 'label'], 'text-font': ['Noto Sans Bold'], 'text-size': 12, 'text-allow-overlap': true }, paint: { 'text-color': '#000' } });
     add('ov-sites', { type: 'circle', source: 'ov-sites',
       paint: { 'circle-radius': ['case', ['get', 'current'], 6, 4.5], 'circle-color': ['case', ['get', 'current'], '#3d8bff', 'rgba(20,24,30,0.9)'],
         'circle-stroke-color': ['case', ['get', 'current'], '#ffffff', 'rgba(160,180,210,0.9)'], 'circle-stroke-width': 1.5 } });

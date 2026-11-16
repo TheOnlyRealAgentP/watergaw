@@ -427,6 +427,10 @@ body.mode-simple .timeline .play { width: 52px; height: 52px; }
 .history-banner button { border: 0; background: rgba(0,0,0,0.2); color: inherit; border-radius: 999px; padding: 3px 10px; font-weight: 700; }
 .frame-time.fc { color: #c99bff; }
 .ticks i.fc { background: rgba(170, 110, 255, 0.55); }
+.xs-wrap { margin: 10px 0 6px; border-radius: 10px; overflow: hidden; border: 1px solid var(--line); }
+.xs-wrap canvas { display: block; width: 100%; }
+@media (min-width: 760px) { .sheet[data-kind="xsect"] { width: min(720px, calc(100vw - 90px)); } }
+body.picking .maplibregl-canvas { cursor: crosshair !important; }
 .lg-ends { display: flex; justify-content: space-between; font-size: 10.5px; color: var(--muted); margin-top: 2px; }
 @media (max-width: 520px) {
   .fc-banner { top: calc(var(--top) + 92px); }

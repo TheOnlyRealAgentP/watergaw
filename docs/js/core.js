@@ -55,6 +55,29 @@ export function wrap(w) {
       return [a[1], a[0]];
     },
     beamHeight: (slant, elev) => w.of_beam_height(slant, elev),
+    /** Decode a Level II volume and keep it inside this module instance. */
+    level2Load(bytes) {
+      const p = w.of_alloc(bytes.length);
+      new Uint8Array(mem(), p, bytes.length).set(bytes);
+      const blob = w.of_level2_load(p, bytes.length);
+      w.of_free(p, bytes.length);
+      const [meta] = take(blob);
+      const m = JSON.parse(new TextDecoder().decode(meta));
+      if (m.error) throw new Error(m.error);
+      return m;
+    },
+    level2Xsect(moment, a, b, nx, nz, topKm) {
+      const [meta, vals] = take(w.of_level2_xsect(moment, a[0], a[1], b[0], b[1], nx, nz, topKm));
+      const m = JSON.parse(new TextDecoder().decode(meta));
+      if (m.error) throw new Error(m.error);
+      return { beams: m.beams, values: new Float32Array(vals) };
+    },
+    level2Cut(i) {
+      const [meta, codes, lut, flags] = take(w.of_level2_cut(i));
+      const m = JSON.parse(new TextDecoder().decode(meta));
+      if (m.error) throw new Error(m.error);
+      return { meta: m, codes: new Uint8Array(codes), lut: new Float32Array(lut), flags: new Uint8Array(flags) };
+    },
     /** Crop a PNG-packed GRIB2 field to a box (rows evenly spaced in Web Mercator). */
     grib2Crop(bytes, box, width, height) {
       const p = w.of_alloc(bytes.length);

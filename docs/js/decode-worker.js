@@ -4,9 +4,27 @@ import { loadCore } from './core.js';
 const ready = loadCore();
 
 self.onmessage = async (e) => {
-  const { id, url, nowcast, mrms } = e.data;
+  const { id, url, nowcast, mrms, l2load, l2xsect, l2cut } = e.data;
   try {
     const core = await ready;
+    if (l2load) {
+      const res = await fetch(l2load);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const summary = core.level2Load(new Uint8Array(await res.arrayBuffer()));
+      self.postMessage({ id, result: summary });
+      return;
+    }
+    if (l2xsect) {
+      const { moment, a, b, nx, nz, top } = l2xsect;
+      const out = core.level2Xsect(moment, a, b, nx, nz, top);
+      self.postMessage({ id, result: out }, [out.values.buffer]);
+      return;
+    }
+    if (l2cut != null) {
+      const s = core.level2Cut(l2cut);
+      self.postMessage({ id, result: s }, [s.codes.buffer, s.lut.buffer, s.flags.buffer]);
+      return;
+    }
     if (mrms) {
       const res = await fetch(mrms.url);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);

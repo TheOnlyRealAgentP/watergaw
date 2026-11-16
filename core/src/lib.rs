@@ -7,6 +7,7 @@ pub mod bytes;
 pub mod ffi;
 pub mod geo;
 pub mod grib2;
+pub mod level2;
 pub mod level3;
 pub mod nowcast;
 

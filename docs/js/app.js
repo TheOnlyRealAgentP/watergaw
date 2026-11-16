@@ -2,7 +2,7 @@
 // App state, panels, timeline, inspector and sheets.
 
 import { loadCore } from './core.js';
-import { PRODUCTS, PRODUCT, TILT_HINT, productCode, Series, SweepStore, sampleSweep } from './nexrad.js';
+import { PRODUCTS, PRODUCT, TILT_HINT, productCode, Series, SweepStore, sampleSweep, latestLevel2, Level2 } from './nexrad.js';
 import { BUILTIN, DOMAINS, HC_CLASSES, parsePal, paletteTexture, cssGradient, colorAt, rgbCss } from './palettes.js';
 import { RadarLayer } from './radar-layer.js';
 import { buildStyle, ANCHOR_RADAR } from './style.js';
@@ -10,7 +10,7 @@ import { Overlays, WARNING_TYPES, MRMS_LAYERS, MRMS_LEGEND, MOSAIC_LEGEND, GAUGE
 import { searchPlaces, summarize, intensityWord } from './places.js';
 import * as U from './units.js';
 
-const VERSION = '1.3.0';
+const VERSION = '1.4.0';
 const FORECAST_LEADS = [10, 20, 30, 40, 50, 60].map((m) => m * 60);
 // Everyday mode shows these products with plain names.
 const SIMPLE_PRODUCTS = [['REF', 'Radar'], ['PST', 'Rain totals']];
@@ -785,6 +785,7 @@ class App {
   }
 
   onClick(panel, e) {
+    if (this.xs && !this.xs.b) return this.xsPick(e.lngLat);
     const map = panel.map;
     const pad = 8;
     const box = [[e.point.x - pad, e.point.y - pad], [e.point.x + pad, e.point.y + pad]];
@@ -1052,6 +1053,124 @@ class App {
     setTimeout(() => input.focus(), 50);
   }
 
+  // ======================================================== cross-sections (Level II)
+
+  startXsect() {
+    if (!this.site) return this.toast('Pick a radar first.');
+    this.xs = { a: null, b: null };
+    this.overlays.setData('xs', { type: 'FeatureCollection', features: [] });
+    document.body.classList.add('picking');
+    this.toast('Tap two points across a storm to slice through it.');
+  }
+
+  xsPick(ll) {
+    const p = [ll.lat, ll.lng];
+    if (!this.xs.a) this.xs.a = p;
+    else this.xs.b = p;
+    const pts = [this.xs.a, this.xs.b].filter(Boolean);
+    const feats = pts.map((q, i) => ({ type: 'Feature', geometry: { type: 'Point', coordinates: [q[1], q[0]] }, properties: { label: i ? 'B' : 'A' } }));
+    if (pts.length === 2) feats.unshift({ type: 'Feature', geometry: { type: 'LineString', coordinates: pts.map((q) => [q[1], q[0]]) }, properties: {} });
+    this.overlays.setData('xs', { type: 'FeatureCollection', features: feats });
+    if (this.xs.b) {
+      document.body.classList.remove('picking');
+      this.openXsect();
+    }
+  }
+
+  async openXsect() {
+    const moments = [['REF', 'Reflectivity', 'REF'], ['VEL', 'Velocity', 'VEL'], ['ZDR', 'ZDR', 'ZDR'], ['RHO', 'CC', 'CC']];
+    const cur = this.xsMoment || 'REF';
+    const body = this.openSheet('Cross-section', `
+      <div class="seg wide" id="xs-m">${moments.map(([k, l]) => `<button type="button" role="radio" aria-checked="${k === cur}" data-v="${k}">${l}</button>`).join('')}</div>
+      <div class="xs-wrap"><canvas id="xs-canvas" aria-label="Vertical slice of the storm"></canvas></div>
+      <div class="lg"><div class="lg-bar" id="xs-legend"></div><div class="lg-ends" id="xs-ends"></div></div>
+      <p class="note" id="xs-status">Finding the latest full volume scan…</p>
+      <div class="chips"><button type="button" class="chip" data-act="xs-new">Draw a new line</button></div>
+      <p class="note">A slice straight down through the storm from A to B, built from every elevation the radar scanned (NEXRAD Level II). Tall cores and overhangs show storm strength; gaps are where no beam reaches.</p>`, null, 'xsect');
+    segBind($('#xs-m', body), (v) => { this.xsMoment = v; this.drawXsect(); });
+    const status = $('#xs-status', body);
+    try {
+      const fr = this.timeline?.[this.frameIndex];
+      const at = this.historyEnd || (!this.live && fr && !fr.sweep ? fr.time + 600 : null);
+      const key = await latestLevel2(this.site.id, at);
+      if (!key) throw new Error('no Level II volume found for this radar');
+      if (!this.l2) this.l2 = new Level2();
+      if (this.l2.key !== key) status.textContent = 'Downloading and decoding the full volume scan (about 5–15 MB)…';
+      const t0 = performance.now();
+      const sum = await this.l2.load(key);
+      this.xsVolume = sum;
+      const beams = new Set(sum.cuts.filter((c) => c.moment === 'REF').map((c) => c.elevation.toFixed(1))).size;
+      status.textContent = `${sum.site} · ${U.dateTime(sum.time, this.state.utc)} · ${beams} elevation angles · VCP ${sum.vcp}${performance.now() - t0 > 400 ? ` · decoded in ${((performance.now() - t0) / 1000).toFixed(1)} s` : ''}`;
+      await this.drawXsect();
+    } catch (e) {
+      status.textContent = `Couldn't build the cross-section: ${e.message}`;
+    }
+  }
+
+  async drawXsect() {
+    const canvas = $('#xs-canvas');
+    if (!canvas || !this.xs?.b || !this.xsVolume) return;
+    const mom = this.xsMoment || 'REF';
+    const idx = { REF: 0, VEL: 1, ZDR: 2, RHO: 3 }[mom];
+    const palName = { REF: 'REF', VEL: 'VEL', ZDR: 'ZDR', RHO: 'CC' }[mom];
+    const nx = 480, nz = 200;
+    // Fit the height scale to the tallest echo along the slice (8-18 km).
+    let top = 18;
+    let out = await this.l2.xsect(idx, this.xs.a, this.xs.b, nx, nz, top);
+    let highest = 0;
+    for (let iz = 0; iz < nz && !highest; iz++) for (let ix = 0; ix < nx; ix++) if (Number.isFinite(out.values[iz * nx + ix])) { highest = top * (1 - iz / nz); break; }
+    const fit = Math.min(18, Math.max(8, Math.ceil(highest + 2.5)));
+    if (fit < top - 1) { top = fit; out = await this.l2.xsect(idx, this.xs.a, this.xs.b, nx, nz, top); }
+    const pal = this.palette(palName);
+    const img = new ImageData(nx, nz);
+    for (let i = 0; i < out.values.length; i++) {
+      const v = out.values[i];
+      if (!Number.isFinite(v)) continue;
+      const c = colorAt(pal, v * pal.scale + pal.offset);
+      if (!c || c[3] < 10) continue;
+      img.data[i * 4] = c[0]; img.data[i * 4 + 1] = c[1]; img.data[i * 4 + 2] = c[2]; img.data[i * 4 + 3] = 255;
+    }
+    const off = document.createElement('canvas');
+    off.width = nx; off.height = nz;
+    off.getContext('2d').putImageData(img, 0, 0);
+    // Draw at the canvas's on-screen size so labels stay crisp.
+    const dpr = window.devicePixelRatio || 1;
+    const W = canvas.clientWidth || 340, H = Math.round(W * 0.58);
+    canvas.width = W * dpr; canvas.height = H * dpr; canvas.style.height = `${H}px`;
+    const ctx = canvas.getContext('2d');
+    ctx.scale(dpr, dpr);
+    const L = 38, B = 20, T = 6, R = 6;
+    ctx.fillStyle = '#0b0e13';
+    ctx.fillRect(0, 0, W, H);
+    ctx.imageSmoothingEnabled = true;
+    ctx.drawImage(off, L, T, W - L - R, H - T - B);
+    ctx.fillStyle = 'rgba(200,210,225,0.85)';
+    ctx.strokeStyle = 'rgba(255,255,255,0.12)';
+    ctx.font = '10.5px Inter, system-ui, sans-serif';
+    const u = this.state.units;
+    const ft = u.height === 'ft';
+    const step = ft ? (top > 10 ? 10 : 5) : (top > 10 ? 3 : 2);
+    const maxH = ft ? top * 3.28084 : top;
+    for (let h = 0; h <= maxH; h += step) {
+      const y = T + (1 - h / maxH) * (H - T - B);
+      ctx.beginPath(); ctx.moveTo(L, y); ctx.lineTo(W - R, y); ctx.stroke();
+      ctx.textAlign = 'right';
+      ctx.fillText(`${h}${h === 0 ? '' : ft ? 'k' : ''}`, L - 4, y + 3.5);
+    }
+    ctx.save(); ctx.translate(10, T + (H - T - B) / 2); ctx.rotate(-Math.PI / 2); ctx.textAlign = 'center';
+    ctx.fillText(ft ? 'height, ft' : 'height, km', 0, 0); ctx.restore();
+    const distKm = this.core.polar(this.xs.a[0], this.xs.a[1], 0, this.xs.b[0], this.xs.b[1]).ground;
+    const d = U.distance(distKm, u.distance);
+    ctx.textAlign = 'left'; ctx.fillText('A', L, H - 5);
+    ctx.textAlign = 'right'; ctx.fillText(`B · ${U.fmt(d.v)} ${d.unit}`, W - R, H - 5);
+    // Legend
+    const ranges = { REF: [-10, 75, 'dBZ'], VEL: [-40, 40, 'm/s'], ZDR: [-2, 6, 'dB'], RHO: [0.2, 1.05, ''] };
+    const [lo, hi, unit] = ranges[mom];
+    $('#xs-legend').style.background = cssGradient(pal, lo, hi);
+    const show = (v) => (mom === 'VEL' ? U.fmtU(U.speed(v, u.speed)) : `${v}${unit ? ' ' + unit : ''}`);
+    $('#xs-ends').innerHTML = `<span>${show(lo)}</span><span>${show(hi)}</span>`;
+  }
+
   // ======================================================== alerts
 
   async enableAlerts(on) {
@@ -1198,6 +1317,7 @@ class App {
     new ResizeObserver(() => document.documentElement.style.setProperty('--dock-h', `${dock.offsetHeight}px`)).observe(dock);
     $('#btn-site').addEventListener('click', () => this.openSites());
     $('#btn-search').addEventListener('click', () => this.openSearch());
+    $('#btn-xsect').addEventListener('click', () => this.startXsect());
     $('#btn-product').addEventListener('click', () => this.openProducts());
     $('#btn-layers').addEventListener('click', () => this.openLayers());
     $('#btn-settings').addEventListener('click', () => this.openSettings());
@@ -1248,6 +1368,7 @@ class App {
     }
     switch (t.dataset.act) {
       case 'search': $('#welcome')?.remove(); return this.openSearch();
+      case 'xs-new': this.closeSheet(); return this.startXsect();
       case 'save-place': return this.toggleSave();
       case 'clear-focus': return this.clearFocus();
       case 'mode-pro': this.closeSheet(); return this.setMode('pro');

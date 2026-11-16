@@ -137,6 +137,73 @@ export class Series {
   }
 }
 
+export const L2_BUCKET = 'https://unidata-nexrad-level2.s3.amazonaws.com';
+
+/** Newest Level II volume key for a radar (4-letter ID) at or before `end` (Unix s, or now). */
+export async function latestLevel2(siteId, end) {
+  const t = end || Date.now() / 1000;
+  for (const back of [0, 1]) {
+    const d = new Date((t - back * 86400) * 1000);
+    const day = `${d.getUTCFullYear()}/${String(d.getUTCMonth() + 1).padStart(2, '0')}/${String(d.getUTCDate()).padStart(2, '0')}`;
+    const q = new URLSearchParams({ 'list-type': '2', prefix: `${day}/${siteId}/` });
+    if (!back) {
+      const from = new Date((t - 3600) * 1000);
+      const stampFrom = `${from.getUTCFullYear()}${String(from.getUTCMonth() + 1).padStart(2, '0')}${String(from.getUTCDate()).padStart(2, '0')}_${String(from.getUTCHours()).padStart(2, '0')}${String(from.getUTCMinutes()).padStart(2, '0')}`;
+      if (from.getUTCDate() === d.getUTCDate()) q.set('start-after', `${day}/${siteId}/${siteId}${stampFrom}`);
+    }
+    const xml = await (await fetch(`${L2_BUCKET}/?${q}`, { cache: 'no-store' })).text();
+    const keys = [...xml.matchAll(/<Key>([^<]+)<\/Key>/g)].map((m) => m[1]).filter((k) => !k.endsWith('_MDM'));
+    const ok = keys.filter((k) => {
+      const m = k.match(/(\d{8})_(\d{6})/);
+      if (!m) return false;
+      const kt = Date.UTC(+m[1].slice(0, 4), +m[1].slice(4, 6) - 1, +m[1].slice(6, 8), +m[2].slice(0, 2), +m[2].slice(2, 4), +m[2].slice(4, 6)) / 1000;
+      return kt <= t;
+    });
+    if (ok.length) return ok[ok.length - 1];
+  }
+  return null;
+}
+
+/** A dedicated worker that holds one decoded Level II volume. */
+export class Level2 {
+  constructor() {
+    this.worker = new Worker(new URL('./decode-worker.js', import.meta.url), { type: 'module' });
+    this.pending = new Map();
+    this.next = 1;
+    this.key = null;
+    this.worker.onmessage = (e) => {
+      const p = this.pending.get(e.data.id);
+      if (!p) return;
+      this.pending.delete(e.data.id);
+      if (e.data.error) p.reject(new Error(e.data.error));
+      else p.resolve(e.data.result);
+    };
+  }
+
+  call(msg) {
+    const id = this.next++;
+    return new Promise((resolve, reject) => {
+      this.pending.set(id, { resolve, reject });
+      this.worker.postMessage({ id, ...msg });
+    });
+  }
+
+  async load(key) {
+    if (this.key === key && this.summary) return this.summary;
+    this.summary = await this.call({ l2load: `${L2_BUCKET}/${key}` });
+    this.key = key;
+    return this.summary;
+  }
+
+  xsect(moment, a, b, nx, nz, top) {
+    return this.call({ l2xsect: { moment, a, b, nx, nz, top } });
+  }
+
+  cut(i) {
+    return this.call({ l2cut: i });
+  }
+}
+
 /** Worker pool that decodes files, with an LRU cache of decoded sweeps. */
 export class SweepStore {
   constructor() {
