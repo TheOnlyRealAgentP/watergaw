@@ -484,6 +484,17 @@ body.src-all #product-strip, body.src-all #tilts, body.src-all .prod-chip { disp
 .lg-mini i { display: inline-block; width: 9px; height: 9px; border-radius: 50%; background: var(--c); }
 .lg-mini i.ring { background: transparent; border: 2px solid var(--c); width: 10px; height: 10px; box-sizing: border-box; }
 .lg-mini i.line { width: 14px; height: 3px; border-radius: 2px; }
+.drive-field { display: flex; flex-direction: column; gap: 4px; margin: 6px 0; }
+.drive-field label { font-size: 12px; color: var(--muted); font-weight: 600; }
+.drive-field input { height: 40px; border-radius: 10px; border: 1px solid var(--line-strong); background: var(--line); padding: 0 12px; }
+.drive-sum { margin: 12px 0 6px; font-size: 15px; }
+.stops { display: flex; flex-direction: column; margin-top: 8px; }
+.stop { display: grid; grid-template-columns: 64px 1fr; gap: 8px; padding: 7px 0 7px 10px; border-left: 4px solid var(--c); border-top: 1px solid var(--line); }
+.stop .st-t { font-variant-numeric: tabular-nums; font-weight: 600; font-size: 13px; }
+.stop .st-p { display: flex; flex-direction: column; font-size: 13px; }
+.stop small { color: var(--muted); font-size: 12px; }
+.stop small.hot { color: var(--bad); font-weight: 700; }
+@media (min-width: 760px) { .sheet[data-kind="drive"] { width: min(520px, calc(100vw - 90px)); } }
 .wind-canvas { position: absolute; inset: 0; pointer-events: none; z-index: 1; }
 .lg-ends { display: flex; justify-content: space-between; font-size: 10.5px; color: var(--muted); margin-top: 2px; }
 @media (max-width: 520px) {

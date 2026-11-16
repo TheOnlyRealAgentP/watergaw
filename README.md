@@ -27,6 +27,8 @@ Every feature that other radar apps put behind a subscription is free here.
 - **Forecast & charts** for any place, or any spot you tap: 48-hour temperature, rain and snow, and wind
   charts with alerts shaded in, plus a 7-day outlook (National Weather Service).
 - **All radars or one station:** a seamless, animated national mosaic, or one radar's own full-resolution scans.
+- **RouteCast:** plan a drive and see the weather you'll meet at each point when you get there
+  (NWS hourly forecasts, active warnings and the next-hour radar), drawn on the map by risk.
 - **Lightning**, **hurricanes** (NHC cones, tracks, coastal watches/warnings, 7-day outlook), **hail today**,
   **animated wind**, **earthquakes** (USGS), **wildfires** (NIFC), **river levels** and **rain totals**,
   all with friendly labels.
@@ -45,8 +47,8 @@ Every feature that other radar apps put behind a subscription is free here.
 - **Storm tracks** with hail, rotation and arrival times. **Warnings** with damage-threat tags, watches,
   mesoscale discussions, the SPC outlook and storm reports.
 - **Water:** NWPS river gauges with forecast hydrographs and flood stages, plus MRMS rainfall totals.
-- **Aviation:** METAR flight categories, pilot reports (turbulence, icing), SIGMETs, G-AIRMETs and
-  center weather advisories.
+- **Aviation:** METAR flight categories, pilot reports (turbulence, icing), SIGMETs, G-AIRMETs,
+  center weather advisories, and official FAA charts (VFR sectional and terminal, IFR low and high).
 - Installable (PWA), works offline once loaded, shareable links.
 
 ## How it works
@@ -127,7 +129,8 @@ national mosaic and MRMS rainfall tiles: Iowa Environmental Mesonet. Outlooks: S
 Prediction Center. River gauges and forecasts: National Water Prediction Service. Point forecasts:
 National Weather Service API. Earthquakes: USGS. Wildfires: NIFC (WFIGS). Aviation: NOAA Aviation
 Weather Center. Wind: NOAA GFS through [Watergaw Wind](https://github.com/TheOnlyRealAgentP/watergaw-wind),
-our own open-source engine (vendored in `docs/vendor/`; refresh with `tools/sync_wind.sh`).
+our own open-source engine (vendored in `docs/vendor/`; refresh with `tools/sync_wind.sh`). Driving
+routes: OSRM (OpenStreetMap). Flight charts: FAA Aeronautical Information Services.
 Satellite: NASA GIBS (GOES ABI band 13). Basemap: OpenFreeMap / OpenStreetMap
 contributors. Counties: US Census Bureau.
 

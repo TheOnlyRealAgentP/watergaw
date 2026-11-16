@@ -53,6 +53,7 @@ const MRMS = 'https://noaa-mrms-pds.s3.amazonaws.com';
 const USGS = 'https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary';
 const WFIGS = 'https://services3.arcgis.com/T4QMspbfLg3qTGWY/arcgis/rest/services';
 const AWC = 'https://mapservices.weather.noaa.gov/vector/rest/services/aviation/awc_aviation_weather/MapServer';
+export const FAA_CHARTS = { sectional: ['VFR_Sectional', 'VFR sectional'], terminal: ['VFR_Terminal', 'VFR terminal area'], ifrlow: ['IFR_AreaLow', 'IFR low'], ifrhigh: ['IFR_High', 'IFR high'] };
 export const FLIGHT_CAT = { VFR: '#34c759', MVFR: '#3d8bff', IFR: '#ff3b30', LIFR: '#ff2dbe' };
 const AIR_HAZ = { CONVECTIVE: ['Convective SIGMET', '#ff3b30'], TS: ['Thunderstorms', '#ff3b30'], TURB: ['Turbulence', '#ff9f0a'], 'TURB-HI': ['Turbulence (high)', '#ff9f0a'],
   'TURB-LO': ['Turbulence (low)', '#ffb340'], ICE: ['Icing', '#64d2ff'], FZLVL: ['Freezing level', '#5ac8fa'], IFR: ['IFR conditions', '#bf5af2'], MT_OBSC: ['Mountains obscured', '#c69c6d'],
@@ -156,7 +157,7 @@ export class Overlays {
     this.flameIcon(map);
     const add = (id, layer, before) => { if (!map.getLayer(id)) map.addLayer({ id, ...layer }, before && map.getLayer(before) ? before : undefined); };
     const src = (id, def) => { if (!map.getSource(id)) map.addSource(id, def); };
-    for (const name of ['spc', 'watch', 'mcd', 'warn', 'rings', 'storms', 'tracks', 'lsr', 'gauges', 'sites', 'trop-outlook', 'trop-cone', 'trop-ww', 'trop-line', 'trop-pts', 'xs', 'quakes', 'fires', 'perims', 'metar', 'airsig', 'pirep']) {
+    for (const name of ['spc', 'watch', 'mcd', 'warn', 'rings', 'storms', 'tracks', 'lsr', 'gauges', 'sites', 'trop-outlook', 'trop-cone', 'trop-ww', 'trop-line', 'trop-pts', 'xs', 'quakes', 'fires', 'perims', 'metar', 'airsig', 'pirep', 'route']) {
       src(`ov-${name}`, { type: 'geojson', data: this.data[name] || EMPTY });
     }
     // Rasters sit under the radar.
@@ -242,6 +243,15 @@ export class Overlays {
     add('ov-quakes-label', { type: 'symbol', source: 'ov-quakes', minzoom: 4, filter: ['>=', ['get', 'mag'], 3],
       layout: { 'text-field': ['get', 'magLabel'], 'text-font': ['Noto Sans Bold'], 'text-size': 10, 'text-allow-overlap': false, 'text-offset': [0, -1.4] },
       paint: { 'text-color': '#ffffff', 'text-halo-color': 'rgba(0,0,0,0.9)', 'text-halo-width': 1.3 } });
+    add('ov-route-casing', { type: 'line', source: 'ov-route', filter: ['==', ['geometry-type'], 'LineString'], layout: { 'line-cap': 'round', 'line-join': 'round' },
+      paint: { 'line-color': 'rgba(0,0,0,0.75)', 'line-width': ['interpolate', ['linear'], ['zoom'], 4, 5, 10, 10] } });
+    add('ov-route', { type: 'line', source: 'ov-route', filter: ['==', ['geometry-type'], 'LineString'], layout: { 'line-cap': 'round', 'line-join': 'round' },
+      paint: { 'line-color': ['get', 'color'], 'line-width': ['interpolate', ['linear'], ['zoom'], 4, 3, 10, 6] } });
+    add('ov-route-pts', { type: 'circle', source: 'ov-route', filter: ['==', ['geometry-type'], 'Point'],
+      paint: { 'circle-radius': 5, 'circle-color': ['get', 'color'], 'circle-stroke-color': '#000', 'circle-stroke-width': 1.5 } });
+    add('ov-route-lbl', { type: 'symbol', source: 'ov-route', filter: ['all', ['==', ['geometry-type'], 'Point'], ['!=', ['get', 'label'], '']],
+      layout: { 'text-field': ['get', 'label'], 'text-font': ['Noto Sans Bold'], 'text-size': 11, 'text-offset': [0, 1.2], 'text-anchor': 'top' },
+      paint: { 'text-color': '#fff', 'text-halo-color': 'rgba(0,0,0,0.9)', 'text-halo-width': 1.4 } });
     add('ov-xs-casing', { type: 'line', source: 'ov-xs', filter: ['==', ['geometry-type'], 'LineString'], paint: { 'line-color': '#000', 'line-width': 6, 'line-opacity': 0.7 } });
     add('ov-xs', { type: 'line', source: 'ov-xs', filter: ['==', ['geometry-type'], 'LineString'], paint: { 'line-color': '#ffffff', 'line-width': 3 } });
     add('ov-xs-pts', { type: 'circle', source: 'ov-xs', filter: ['==', ['geometry-type'], 'Point'], paint: { 'circle-radius': 9, 'circle-color': '#ffffff', 'circle-stroke-color': '#000', 'circle-stroke-width': 2 } });
@@ -276,6 +286,11 @@ export class Overlays {
       // Above the radar so strikes show on top of storms.
       map.addSource('ov-lightning', { type: 'raster', tiles: [this.lightningUrl()], tileSize: 256, maxzoom: 10, attribution: 'Lightning: NOAA nowCOAST (NLDN/GLD360)' });
       map.addLayer({ id: 'ov-lightning', type: 'raster', source: 'ov-lightning', paint: { 'raster-opacity': 0.95, 'raster-fade-duration': 0 } }, map.getLayer(ANCHOR_RADAR) ? ANCHOR_RADAR : undefined);
+    }
+    const faa = FAA_CHARTS[this.s.overlays.faa];
+    if (faa && !map.getSource('ov-faa')) {
+      map.addSource('ov-faa', { type: 'raster', tiles: [`https://tiles.arcgis.com/tiles/ssFJjBXIUyZDrSYZ/arcgis/rest/services/${faa[0]}/MapServer/tile/{z}/{y}/{x}`], tileSize: 256, maxzoom: 12, attribution: 'Charts: FAA Aeronautical Information Services' });
+      map.addLayer({ id: 'ov-faa', type: 'raster', source: 'ov-faa', paint: { 'raster-opacity': 0.92, 'raster-fade-duration': 0 } }, before);
     }
     const mr = MRMS_LAYERS[this.s.overlays.mrms];
     if (mr && !map.getSource('ov-mrms')) {
@@ -321,6 +336,7 @@ export class Overlays {
     this.vis(map, ['ov-sites', 'ov-sites-label'], o.sites);
     this.vis(map, ['ov-sat'], o.satellite);
     this.vis(map, ['ov-lightning'], o.lightning);
+    this.vis(map, ['ov-faa'], !!FAA_CHARTS[o.faa]);
     this.vis(map, ['ov-quakes', 'ov-quakes-core', 'ov-quakes-label'], o.quakes);
     this.vis(map, ['ov-fires', 'ov-fires-label', 'ov-perims', 'ov-perims-line'], o.fires);
     this.vis(map, ['ov-metar', 'ov-metar-label', 'ov-pirep', 'ov-airsig', 'ov-airsig-line'], o.aviation);

@@ -6,13 +6,15 @@ import { PRODUCTS, PRODUCT, TILT_HINT, productCode, Series, SweepStore, sampleSw
 import { BUILTIN, DOMAINS, HC_CLASSES, parsePal, paletteTexture, cssGradient, colorAt, rgbCss } from './palettes.js';
 import { RadarLayer } from './radar-layer.js';
 import { buildStyle, ANCHOR_RADAR } from './style.js';
-import { Overlays, WARNING_TYPES, MRMS_LAYERS, MRMS_LEGEND, MOSAIC_LEGEND, GAUGE_COLORS, TRACKS, TRACK_WINDOWS, esc, mesoRank, hasTvs } from './overlays.js';
+import { Overlays, WARNING_TYPES, MRMS_LAYERS, MRMS_LEGEND, MOSAIC_LEGEND, GAUGE_COLORS, TRACKS, TRACK_WINDOWS, FAA_CHARTS, esc, mesoRank, hasTvs } from './overlays.js';
 import { searchPlaces, summarize, intensityWord } from './places.js';
 import { loadForecast, charts, days, alertChips, summaryLine, emoji, tempOf } from './forecast.js';
 import { WindField, WindAnimation, WIND_STOPS } from './wind.js';
+import { planDrive, routeGeoJSON, describe as describeStop, driveChart, LEVEL_COLOR } from './route.js';
+import { sampleNear } from './places.js';
 import * as U from './units.js';
 
-const VERSION = '1.7.0';
+const VERSION = '1.8.0';
 const FORECAST_LEADS = [10, 20, 30, 40, 50, 60].map((m) => m * 60);
 // Level II moment behind each product that has one.
 const L2_MOMENT = { REF: 'REF', VEL: 'VEL', SRV: 'VEL', ZDR: 'ZDR', CC: 'RHO' };
@@ -40,7 +42,7 @@ const DEFAULTS = {
   basemap: 'dark',
   autoSite: false,
   units: { ...U.DEFAULT_UNITS },
-  overlays: { warnings: true, watches: true, storms: true, reports: false, spc: false, rivers: false, rings: false, sites: true, satellite: false, lightning: false, tropical: false, rotation: 'off', hail: 'off', quakes: false, fires: false, wind: false, aviation: false, mrms: 'off', mosaic: 'auto' },
+  overlays: { warnings: true, watches: true, storms: true, reports: false, spc: false, rivers: false, rings: false, sites: true, satellite: false, lightning: false, tropical: false, rotation: 'off', hail: 'off', quakes: false, fires: false, wind: false, aviation: false, faa: 'off', mrms: 'off', mosaic: 'auto' },
   warningTypes: Object.fromEntries(WARNING_TYPES.map((w) => [w.key, w.on])),
   srm: { mode: 'auto', dir: 240, kt: 25 },
   filters: {},
@@ -1055,7 +1057,8 @@ class App {
       <p class="now-fc" id="now-fc">${this.fcLine && this.fcLine.key === `${f.lat},${f.lon}` ? esc(this.fcLine.text) : ''}</p>
       ${bars ? `<div class="bars" aria-label="Next hour">${bars}</div>` : ''}
       ${sum.lines.map((l, i) => `<button class="now-line ${l.cls}" data-line="${i}">${esc(l.text)}</button>`).join('')}
-      <div class="now-btns"><button class="btn small" data-act="forecast">${ICON.chart}<span>Forecast &amp; charts</span></button></div>`;
+      <div class="now-btns"><button class="btn small" data-act="forecast">${ICON.chart}<span>Forecast &amp; charts</span></button>
+        ${f.me ? '' : `<button class="btn small" data-act="drive">${ICON.car}<span>Drive here</span></button>`}</div>`;
     const key = `${f.lat},${f.lon}`;
     if (!this.fcLine || this.fcLine.key !== key || Date.now() - this.fcLine.at > 15 * 60e3) {
       this.fcLine = { key, at: Date.now(), text: '' };
@@ -1140,6 +1143,7 @@ class App {
       <div class="sheet-tools"><input type="search" id="place-q" placeholder="City, address or ZIP code" autocomplete="off" enterkeyhint="search">
       <button class="btn" data-act="locate">${ICON.locate}<span>Me</span></button></div>
       <div class="site-list" id="place-results"></div>
+      <div class="chips"><button type="button" class="chip" data-act="drive">${ICON.car} Plan a drive (RouteCast)</button></div>
       ${this.state.places.length ? `<h4>My places</h4><div class="site-list" id="my-places">${this.state.places.map((p, i) => {
         const warn = (this.warnings || []).find((w) => pointInGeom([p.lon, p.lat], w.geometry));
         return `<div class="place-row"><button type="button" class="site-row" data-saved="${i}"><b>${ICON.pin}</b><span>${esc(p.name)}</span>
@@ -1311,6 +1315,96 @@ class App {
       if (!p.windAnim) p.windAnim = new WindAnimation(p.map, this.wind);
       p.windAnim.rebuild();
     }
+  }
+
+  // ======================================================== RouteCast
+
+  openDrive(to) {
+    const from = this.userLoc ? { name: 'Your location', lat: this.userLoc.lat, lon: this.userLoc.lng } : null;
+    this.drive = { from, to: to || null, leave: 0 };
+    const body = this.openSheet('Weather along your drive', `
+      <div class="drive-field"><label>From</label><input type="search" id="drv-from" placeholder="Start: city, address or ZIP" autocomplete="off" value="${from ? esc(from.name) : ''}"><div class="site-list" id="drv-from-res"></div></div>
+      <div class="drive-field"><label>To</label><input type="search" id="drv-to" placeholder="Destination" autocomplete="off" value="${to ? esc(to.name) : ''}"><div class="site-list" id="drv-to-res"></div></div>
+      <div class="field"><span>Leave</span><div class="seg" id="drv-leave">${[[0, 'Now'], [1, 'In 1 h'], [2, 'In 2 h'], [4, 'In 4 h'], [8, 'In 8 h']].map(([h, l]) => `<button type="button" role="radio" aria-checked="${h === 0}" data-v="${h}">${l}</button>`).join('')}</div></div>
+      <div class="chips"><button type="button" class="btn primary" id="drv-go">${ICON.car}<span>Check my drive</span></button></div>
+      <div id="drv-out"></div>
+      <p class="note">Routes from OpenStreetMap (OSRM). Forecasts from the National Weather Service for when you'll reach each point; radar for the next hour. Always check conditions before you go.</p>`, null, 'drive');
+    const picker = (inputId, resId, key) => {
+      const input = $(inputId, body);
+      let timer, results = [];
+      input.addEventListener('input', () => {
+        this.drive[key] = null;
+        clearTimeout(timer);
+        timer = setTimeout(async () => {
+          try { results = await searchPlaces(input.value, this.primaryMap.getCenter()); } catch { results = []; }
+          $(resId, body).innerHTML = results.slice(0, 5).map((r, i) => `<button type="button" class="site-row" data-r="${i}"><b>${ICON.pin}</b><span>${esc(r.name)}<small>${esc(r.detail)}</small></span><small></small></button>`).join('');
+        }, 250);
+      });
+      $(resId, body).addEventListener('click', (e) => {
+        const b = e.target.closest('[data-r]');
+        if (!b) return;
+        this.drive[key] = results[+b.dataset.r];
+        input.value = this.drive[key].name;
+        $(resId, body).innerHTML = '';
+      });
+    };
+    picker('#drv-from', '#drv-from-res', 'from');
+    picker('#drv-to', '#drv-to-res', 'to');
+    segBind($('#drv-leave', body), (v) => { this.drive.leave = +v; });
+    $('#drv-go', body).addEventListener('click', () => this.runDrive());
+    if (from && to) this.runDrive();
+  }
+
+  async runDrive() {
+    const out = $('#drv-out');
+    const { from, to, leave } = this.drive;
+    if (!from || !to) { out.innerHTML = '<p class="note">Pick a start and a destination from the suggestions.</p>'; return; }
+    out.innerHTML = '<p class="note">Finding your route and checking the weather along it…</p>';
+    const depart = Date.now() / 1000 + leave * 3600;
+    try {
+      const plan = await planDrive(from, to, depart, {
+        warningsAt: (lon, lat) => (this.warnings || []).filter((w) => pointInGeom([lon, lat], w.geometry)),
+        radarAt: (lat, lon, eta) => this.radarAtTime(lat, lon, eta),
+      });
+      this.drivePlan = plan;
+      this.overlays.setData('route', routeGeoJSON(plan));
+      const lons = plan.coords.map((c) => c[0]), lats = plan.coords.map((c) => c[1]);
+      this.primaryMap.fitBounds([[Math.min(...lons), Math.min(...lats)], [Math.max(...lons), Math.max(...lats)]], { padding: { top: 80, bottom: 220, left: 40, right: 60 }, duration: 800 });
+      this.primaryMap.once('moveend', () => this.syncAll());
+      const u = this.state.units;
+      const worst = plan.samples.reduce((a, s) => (['ok', 'some', 'bad', 'warn'].indexOf(s.level) > ['ok', 'some', 'bad', 'warn'].indexOf(a.level) ? s : a), plan.samples[0]);
+      const hrs = Math.floor(plan.seconds / 3600), mins = Math.round((plan.seconds % 3600) / 60);
+      const headline = worst.level === 'warn' ? `⚠ ${worst.warnings[0].properties.event} near ${worst.place || 'your route'}`
+        : worst.level === 'bad' ? `Watch for ${describeStop(worst, u).split(' (')[0].toLowerCase()} near ${worst.place || 'part of the route'} around ${U.clock(worst.eta, this.state.utc)}`
+          : worst.level === 'some' ? `Some rain or snow possible near ${worst.place || 'part of the route'}` : 'Looks like a dry drive';
+      out.innerHTML = `
+        <p class="drive-sum"><b>${esc(headline)}</b><br><span class="note">${hrs ? `${hrs} h ` : ''}${mins} min · ${U.fmtU(U.distance(plan.km, u.distance))} · arrive ${U.clock(plan.depart + plan.seconds, this.state.utc)}</span></p>
+        ${driveChart(plan, u, this.state.utc)}
+        <div class="stops">${plan.samples.map((s, k) => `<div class="stop" style="--c:${LEVEL_COLOR[s.level]}">
+          <span class="st-t">${U.clock(s.eta, this.state.utc)}</span>
+          <span class="st-p"><b>${k === 0 ? 'Start' : k === plan.samples.length - 1 ? 'Arrive' : esc(s.place ? `Near ${s.place}` : `${U.fmtU(U.distance(s.km, u.distance))} in`)}</b>
+          <small>${esc(describeStop(s, u))}</small>${s.warnings.map((w) => `<small class="hot">⚠ ${esc(w.properties.event)}</small>`).join('')}</span></div>`).join('')}</div>
+        <div class="chips"><button type="button" class="chip" data-act="clear-route">Clear route</button></div>`;
+    } catch (e) {
+      out.innerHTML = `<p class="note">${esc(e.message)}</p>`;
+    }
+  }
+
+  /** Radar reflectivity at a point for a time within the next hour (nowcast), else null. */
+  radarAtTime(lat, lon, eta) {
+    const ahead = eta - Date.now() / 1000;
+    if (ahead > 3600 || !this.site) return null;
+    if (ahead < 300) {
+      // Right now: the latest real lowest-tilt reflectivity on screen, if any.
+      const s = this.panels.map((p) => p.sweep).find((sw) => sw && sw.meta.code === 153 && !sw.meta.forecast);
+      const v = s ? sampleNear(this.core, s, lat, lon) : null;
+      return v == null || v < -90 ? null : v;
+    }
+    const fc = this.forecast?.frames;
+    if (!fc?.length) return null;
+    const best = fc.reduce((a, b) => (Math.abs(b.lead - ahead) < Math.abs(a.lead - ahead) ? b : a));
+    const v = sampleNear(this.core, best.sweep, lat, lon);
+    return v == null || v < -90 ? null : v;
   }
 
   // ======================================================== alerts
@@ -1516,6 +1610,8 @@ class App {
       case 'xs-new': this.closeSheet(); return this.startXsect();
       case 'save-place': return this.toggleSave();
       case 'forecast': return this.openForecast();
+      case 'drive': return this.openDrive(this.focus && !this.focus.me ? this.focus : null);
+      case 'clear-route': this.overlays.setData('route', { type: 'FeatureCollection', features: [] }); this.drivePlan = null; return this.closeSheet();
       case 'forecast-here': return this.openForecast(this.inspectPoint);
       case 'clear-focus': return this.clearFocus();
       case 'mode-pro': this.closeSheet(); return this.setMode('pro');
@@ -1749,6 +1845,7 @@ class App {
       ${sw('quakes', 'Earthquakes', 'USGS: past day, plus magnitude 2.5+ for the past week')}
       ${sw('fires', 'Wildfires', 'Active fires and perimeters from NIFC')}
       ${sw('aviation', 'Aviation', 'METAR flight categories, pilot reports, SIGMETs, G-AIRMETs and CWAs')}
+      <div class="field"><span>Flight charts (FAA)</span><div class="seg" id="faa">${[['off', 'Off'], ...Object.entries(FAA_CHARTS).map(([k, v]) => [k, v[1]])].map(([k, l]) => `<button type="button" role="radio" aria-checked="${(o.faa || 'off') === k}" data-v="${k}">${l}</button>`).join('')}</div></div>
       ${trackSeg('hail', 'Hail tracks (MRMS)')}
       ${sw('reports', 'Storm reports', 'Tornado, hail, wind and flood reports')}
       ${sw('spc', 'SPC Day 1 outlook')}
@@ -1792,6 +1889,7 @@ class App {
     }));
     $$('[data-track]', body).forEach((el) => segBind(el, (v) => { o[el.dataset.track] = v; this.save(); this.overlays.applyAll(); if (v !== 'off') this.overlays.enable(el.dataset.track); this.renderLegend(); }));
     $('#hail-today', body)?.addEventListener('change', (e) => { o.hail = e.target.checked ? '1440' : 'off'; this.save(); this.overlays.applyAll(); if (e.target.checked) this.overlays.enable('hail'); this.renderLegend(); });
+    segBind($('#faa', body), (v) => { o.faa = v; this.save(); this.overlays.reinstallRaster('ov-faa'); this.overlays.applyAll(); });
     segBind($('#mrms', body), (v) => { o.mrms = v; this.save(); this.overlays.reinstallRaster('ov-mrms'); this.overlays.applyAll(); this.renderLegend(); });
     segBind($('#mosaic', body), (v) => { o.mosaic = v; this.save(); this.overlays.applyAll(); this.updateSiteVisibility(); });
     segBind($('#basemap', body), (v) => this.setBasemap(v));
@@ -1929,8 +2027,9 @@ class App {
         <li>Place search, saved places and alerts for warnings and incoming rain</li>
         <li>Forecast charts for any place: temperature, rain and snow, wind, alerts and 7 days</li>
         <li>All radars at once, or one station's full-resolution scans</li>
+        <li>RouteCast: the weather you'll drive into, timed to when you'll get there</li>
         <li>Lightning, hurricanes (NHC), hail and rotation tracks (MRMS), river levels and rain totals</li>
-        <li>Animated wind, earthquakes (USGS), wildfires (NIFC) and aviation weather (METARs, PIREPs, SIGMETs, G-AIRMETs)</li>
+        <li>Animated wind (NOAA GFS, our own open engine), earthquakes (USGS), wildfires (NIFC) and aviation weather with FAA flight charts</li>
         <li>Super-resolution reflectivity and velocity, and every elevation from the full Level II scan</li>
         <li>Storm-relative velocity at full resolution with live or manual storm motion</li>
         <li>Dual-pol: correlation coefficient, ZDR, KDP and hydrometeor classification</li>
@@ -1940,7 +2039,7 @@ class App {
         <li>Smooth or raw gates, range highlighting and GR-compatible color tables</li>
       </ul>
       <h4>Data</h4>
-      <p class="note">NEXRAD Level II and III and MRMS from the NOAA Open Data Dissemination program (AWS, Unidata). Lightning: NOAA nowCOAST (NLDN/GLD360). Hurricanes: National Hurricane Center. Forecasts: National Weather Service. Earthquakes: USGS. Wildfires: NIFC. Aviation: NOAA Aviation Weather Center. Wind: NOAA GFS via Watergaw Wind. Place search: OpenStreetMap (Photon). Warnings: National Weather Service API. Watches, mesoscale discussions, storm attributes, storm reports, the national mosaic and MRMS rainfall tiles: Iowa Environmental Mesonet. Outlooks: Storm Prediction Center. River gauges and forecasts: National Water Prediction Service. Satellite: NASA GIBS. Basemap: OpenFreeMap / OpenStreetMap. Counties: US Census Bureau.</p>
+      <p class="note">NEXRAD Level II and III and MRMS from the NOAA Open Data Dissemination program (AWS, Unidata). Lightning: NOAA nowCOAST (NLDN/GLD360). Hurricanes: National Hurricane Center. Forecasts: National Weather Service. Earthquakes: USGS. Wildfires: NIFC. Aviation: NOAA Aviation Weather Center. Wind: NOAA GFS via Watergaw Wind. Routes: OSRM / OpenStreetMap. Flight charts: FAA. Place search: OpenStreetMap (Photon). Warnings: National Weather Service API. Watches, mesoscale discussions, storm attributes, storm reports, the national mosaic and MRMS rainfall tiles: Iowa Environmental Mesonet. Outlooks: Storm Prediction Center. River gauges and forecasts: National Water Prediction Service. Satellite: NASA GIBS. Basemap: OpenFreeMap / OpenStreetMap. Counties: US Census Bureau.</p>
       <h4>Please note</h4>
       <p class="note">Watergaw is an independent project, not affiliated with NOAA or the National Weather Service. Data can be delayed or missing. Don't rely on it alone for life-safety decisions: follow official NWS warnings and local emergency officials.</p>
       <h4>Why “Watergaw”?</h4>
@@ -2066,6 +2165,7 @@ function bboxCenter(g) {
 }
 
 const ICON = {
+  car: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 16h14M6 16l1.5-5h9L18 16M6 16v3M18 16v3"/><circle cx="8" cy="16" r="1"/><circle cx="16" cy="16" r="1"/></svg>',
   chart: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 20h18M6 16v-5M11 16V8M16 16v-3M20 16V6"/></svg>',
   search: '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></svg>',
   pin: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 21s-7-6.2-7-11.5A7 7 0 0 1 19 9.5C19 14.8 12 21 12 21z"/><circle cx="12" cy="9.5" r="2.5"/></svg>',
