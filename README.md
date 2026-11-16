@@ -1,3 +1,5 @@
+<img src="docs/icons/icon.svg" width="96" alt="Outflow logo: Hurricane Harvey on radar">
+
 # Outflow
 
 Pro-grade NEXRAD weather radar, free for everyone. No paywall, account, ads or tracking.
@@ -87,6 +89,15 @@ Trusted Web Activity (e.g. with Bubblewrap), which wraps this exact site. For a 
 build, `core/` is a plain Rust library (`crate-type` includes `rlib`). It can be called
 from Kotlin through JNI/UniFFI, or bundled with the web UI in a Capacitor shell, where
 native networking also opens up Level II data without browser limits.
+
+## The logo
+
+The logo is real radar data: Hurricane Harvey making landfall near Rockport, Texas,
+as a category 4 storm, from the Corpus Christi radar's (KCRP) lowest-tilt reflectivity
+at 03:04 UTC on 26 August 2017. `tools/build_logo.py` fetches that scan from the NOAA
+archive and rebuilds every icon. It contours the storm into Outflow's reflectivity
+colors, tapers the outer rain bands into spiral arms, and magnifies the eye slightly
+so it stays visible at launcher-icon sizes.
 
 ## Data sources
 

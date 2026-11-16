@@ -1,5 +1,5 @@
 // Outflow service worker: instant app shell, offline start, cached radar files.
-const VERSION = 'outflow-1.0.0';
+const VERSION = 'outflow-1.0.1';
 const SHELL = `${VERSION}-shell`;
 const RADAR = 'outflow-radar-files';
 const ASSETS = [

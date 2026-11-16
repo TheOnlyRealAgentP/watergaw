@@ -9,7 +9,7 @@ import { buildStyle, ANCHOR_RADAR } from './style.js';
 import { Overlays, WARNING_TYPES, MRMS_LAYERS, MRMS_LEGEND, MOSAIC_LEGEND, GAUGE_COLORS, esc, mesoRank, hasTvs } from './overlays.js';
 import * as U from './units.js';
 
-const VERSION = '1.0.0';
+const VERSION = '1.0.1';
 const STORE_KEY = 'outflow.v1';
 const $ = (s, el = document) => el.querySelector(s);
 const $$ = (s, el = document) => [...el.querySelectorAll(s)];
@@ -1239,6 +1239,8 @@ class App {
       <p class="note">NEXRAD Level III from the NOAA Open Data Dissemination program (AWS, Unidata). Warnings: National Weather Service API. Watches, mesoscale discussions, storm attributes, storm reports, the national mosaic and MRMS rainfall tiles: Iowa Environmental Mesonet. Outlooks: Storm Prediction Center. River gauges and forecasts: National Water Prediction Service. Satellite: NASA GIBS. Basemap: OpenFreeMap / OpenStreetMap. Counties: US Census Bureau.</p>
       <h4>Please note</h4>
       <p class="note">Outflow is an independent project, not affiliated with NOAA or the National Weather Service. Data can be delayed or missing. Don't rely on it alone for life-safety decisions: follow official NWS warnings and local emergency officials.</p>
+      <h4>The logo</h4>
+      <p class="note">It's real radar data: Hurricane Harvey coming ashore near Rockport, Texas, as seen by the Corpus Christi radar (KCRP) at 03:04 UTC on 26 August 2017, contoured in Outflow's reflectivity colors.</p>
       <p class="note">Version ${VERSION} · <a href="https://github.com/TheOnlyRealAgentP/outflow" target="_blank" rel="noopener">Source code (MIT)</a></p>`, null, 'about');
   }
 
@@ -1246,7 +1248,7 @@ class App {
     const el = document.createElement('div');
     el.id = 'welcome';
     el.className = 'welcome';
-    el.innerHTML = `<h2>Outflow</h2><p>Pro-grade radar, free for everyone.</p>
+    el.innerHTML = `<img class="welcome-logo" src="icons/icon.svg" alt="" width="84" height="84"><h2>Outflow</h2><p>Pro-grade radar, free for everyone.</p>
       <div class="welcome-actions"><button class="btn primary" data-act="locate">${ICON.locate}<span>Use my location</span></button>
       <button class="btn" id="welcome-pick">Pick a radar</button></div>
       <p class="note">Or tap any radar site on the map.</p>
