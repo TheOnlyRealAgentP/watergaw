@@ -495,6 +495,31 @@ body.src-all #product-strip, body.src-all #tilts, body.src-all .prod-chip { disp
 .stop small { color: var(--muted); font-size: 12px; }
 .stop small.hot { color: var(--bad); font-weight: 700; }
 @media (min-width: 760px) { .sheet[data-kind="drive"] { width: min(520px, calc(100vw - 90px)); } }
+/* friendlier bits */
+.tl-labels { position: relative; height: 13px; font-size: 10.5px; color: var(--muted); margin: 1px 8px 0; }
+.tl-labels span { position: absolute; top: 0; white-space: nowrap; }
+.tl-labels .now-lbl { transform: translateX(-50%); color: var(--text); font-weight: 600; }
+.track { height: auto; padding: 4px 0; }
+.now-name, .now-mini { display: flex; align-items: center; gap: 8px; border: 0; background: transparent; padding: 0; text-align: left; min-width: 0; flex: 1; color: var(--muted); font-size: 13px; }
+.now-name b { color: var(--text); font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.now-name > svg:first-child, .now-mini > svg:first-child { color: var(--accent); width: 18px; height: 18px; }
+.now .chev { width: 16px; height: 16px; color: var(--muted); }
+.now.collapsed { padding: 8px 12px; }
+.now-mini { width: 100%; }
+.now-mini b { color: var(--text); font-size: 14px; flex: none; }
+.now-mini span { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-weight: 600; color: var(--text); }
+.inspect .now-btns { flex-wrap: wrap; }
+.inspect .now-btns .btn { white-space: nowrap; }
+.ins-place { font-size: 12.5px; color: var(--muted); min-height: 16px; padding-right: 30px; }
+.ins-main { font-size: 18px; font-weight: 700; margin: 2px 30px 4px 0; line-height: 1.3; }
+.help-row { display: flex; gap: 12px; padding: 10px 0; border-top: 1px solid var(--line); }
+.help-row:first-child { border-top: 0; }
+.help-i { font-size: 24px; line-height: 1.2; flex: none; width: 32px; text-align: center; }
+.help-row b { font-size: 15px; }
+.help-row p { margin: 3px 0 0; color: var(--muted); font-size: 13.5px; line-height: 1.45; }
+html.large-text .topbar, html.large-text .fabs, html.large-text .dock, html.large-text .sheet, html.large-text .now, html.large-text .inspect,
+html.large-text .welcome, html.large-text .toast, html.large-text .fc-banner, html.large-text .history-banner, html.large-text .hud { zoom: 1.15; }
+html.large-text .fabs { top: calc((var(--top) + 54px) / 1.15); }
 .wind-canvas { position: absolute; inset: 0; pointer-events: none; z-index: 1; }
 .lg-ends { display: flex; justify-content: space-between; font-size: 10.5px; color: var(--muted); margin-top: 2px; }
 @media (max-width: 520px) {

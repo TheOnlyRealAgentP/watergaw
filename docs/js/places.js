@@ -31,6 +31,20 @@ export async function searchPlaces(q, near) {
   }
 }
 
+/** "Springville, Utah" style name for a point (OpenStreetMap via Photon), or ''. */
+export async function reverseName(lat, lon) {
+  try {
+    const res = await fetch(`https://photon.komoot.io/reverse?lat=${lat.toFixed(5)}&lon=${lon.toFixed(5)}&lang=en`);
+    const d = await res.json();
+    const p = d.features?.[0]?.properties;
+    if (!p) return '';
+    const town = p.city || p.town || p.village || p.name || p.county || '';
+    return [town, p.state].filter(Boolean).join(', ');
+  } catch {
+    return '';
+  }
+}
+
 export function intensityWord(dbz) {
   if (!(dbz >= 20)) return null;
   if (dbz < 30) return 'Light';
