@@ -1,5 +1,5 @@
 // Watergaw service worker: instant app shell, offline start, cached radar files.
-const VERSION = 'watergaw-1.6.0';
+const VERSION = 'watergaw-1.6.1';
 const SHELL = `${VERSION}-shell`;
 const RADAR = 'watergaw-radar-files';
 const ASSETS = [
@@ -11,7 +11,8 @@ const ASSETS = [
 const MAX_RADAR_FILES = 240;
 
 self.addEventListener('install', (e) => {
-  e.waitUntil(caches.open(SHELL).then((c) => c.addAll(ASSETS)).then(() => self.skipWaiting()));
+  // cache: 'reload' skips the browser's HTTP cache so a new version never stores old files.
+  e.waitUntil(caches.open(SHELL).then((c) => c.addAll(ASSETS.map((u) => new Request(u, { cache: 'reload' })))).then(() => self.skipWaiting()));
 });
 
 self.addEventListener('activate', (e) => {
@@ -45,20 +46,18 @@ self.addEventListener('fetch', (e) => {
     return;
   }
 
-  // App files: serve from cache, refresh in the background.
+  // App files: network first (revalidated, so new releases show up right away),
+  // falling back to the cached copy when offline.
   if (url.origin === location.origin) {
-    let saved = Promise.resolve();
-    const net = fetch(req).then((res) => {
-      if (res.ok) {
-        const copy = res.clone();
-        saved = caches.open(SHELL).then((c) => c.put(req, copy));
-      }
-      return res;
-    }).catch(() => null);
-    e.waitUntil(net.then(() => saved));
     e.respondWith((async () => {
-      const hit = await caches.match(req, { ignoreSearch: true, cacheName: SHELL });
-      return hit || (await net) || new Response('Offline', { status: 503 });
+      const cache = await caches.open(SHELL);
+      try {
+        const res = await fetch(req, { cache: 'no-cache' });
+        if (res.ok) cache.put(req, res.clone());
+        return res;
+      } catch {
+        return (await cache.match(req, { ignoreSearch: true })) || new Response('Offline', { status: 503 });
+      }
     })());
   }
 });
