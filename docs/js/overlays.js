@@ -738,7 +738,7 @@ export class Overlays {
     const geom = `geometry=${box.join(',')}&geometryType=esriGeometryEnvelope&inSR=4326&spatialRel=esriSpatialRelIntersects`;
     const q = (layer, extra = '') => getJSON(`${AWC}/${layer}/query?where=1%3D1&outFields=*&f=geojson&${extra}`);
     const [metar, pirep, sigmet, gairmet, cwa] = await Promise.allSettled([
-      map.getZoom() >= 4.5 ? q(34, `${geom}&resultRecordCount=2000`) : Promise.resolve({ features: [] }),
+      map.getZoom() >= 4.5 ? q(42, `${geom}&resultRecordCount=2000`) : Promise.resolve({ features: [] }),
       map.getZoom() >= 4 ? q(0, `${geom}&resultRecordCount=1000`) : Promise.resolve({ features: [] }),
       q(111), q(110, "where=forecast%3D'0'"), q(113),
     ]);

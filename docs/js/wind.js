@@ -31,9 +31,9 @@ export class WindField {
       west: Math.max(-180, bounds.getWest() - padX), east: Math.min(180, bounds.getEast() + padX),
       south: Math.max(-85, bounds.getSouth() - padY), north: Math.min(85, bounds.getNorth() + padY),
     };
-    // GFS is 0.25°; sampling finer than that adds nothing.
-    const nx = Math.max(8, Math.min(240, Math.ceil((box.east - box.west) / 0.25)));
-    const ny = Math.max(8, Math.min(180, Math.ceil((box.north - box.south) / 0.25)));
+    // ~3 km sampling (HRRR's spacing over the US), capped for speed.
+    const nx = Math.max(32, Math.min(240, Math.round((box.east - box.west) / 0.03)));
+    const ny = Math.max(24, Math.min(180, Math.round((box.north - box.south) / 0.03)));
     this.grid = await this.engine.wind(box, { nx, ny });
     this.loadedAt = Date.now();
     return this.grid;

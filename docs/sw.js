@@ -1,5 +1,5 @@
 // Watergaw service worker: instant app shell, offline start, cached radar files.
-const VERSION = 'watergaw-1.8.0';
+const VERSION = 'watergaw-1.8.1';
 const SHELL = `${VERSION}-shell`;
 const RADAR = 'watergaw-radar-files';
 const ASSETS = [
@@ -7,7 +7,7 @@ const ASSETS = [
   'js/app.js', 'js/core.js', 'js/places.js', 'js/forecast.js', 'js/wind.js', 'js/route.js', 'js/decode-worker.js', 'js/nexrad.js', 'js/overlays.js', 'js/palettes.js',
   'js/radar-layer.js', 'js/style.js', 'js/units.js', 'wasm/watergaw_core.wasm', 'data/sites.json',
   'icons/icon.svg', 'icons/icon-192.png',
-  'vendor/watergaw-wind/js/wind-engine.js', 'vendor/watergaw-wind/js/wind-particles.js', 'vendor/watergaw-wind/wasm/watergaw_wind.wasm',
+  'vendor/watergaw-wind/js/wind-engine.js', 'vendor/watergaw-wind/js/wind-core.js', 'vendor/watergaw-wind/js/wind-worker.js', 'vendor/watergaw-wind/js/wind-particles.js', 'vendor/watergaw-wind/wasm/watergaw_wind.wasm',
 ];
 const MAX_RADAR_FILES = 240;
 
