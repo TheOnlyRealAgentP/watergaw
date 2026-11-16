@@ -108,8 +108,13 @@ adding test files, run `python tools/l3_reference.py core/tests/data/*.l3` (need
 The app is a standard installable PWA, so the quickest path to the Play Store is a
 Trusted Web Activity (e.g. with Bubblewrap), which wraps this exact site. For a native
 build, `core/` is a plain Rust library (`crate-type` includes `rlib`). It can be called
-from Kotlin through JNI/UniFFI, or bundled with the web UI in a Capacitor shell, where
-native networking also opens up Level II data without browser limits.
+from Kotlin through JNI/UniFFI, or bundled with the web UI in a Capacitor shell.
+
+**Planned for the Android app: live flight tracking.** Free ADS-B feeds don't allow
+requests from web pages, so this needs native networking: a Capacitor shell with its
+native HTTP plugin, or a fully native app. A Trusted Web Activity runs inside Chrome and
+has the same limit as the website. The planned source is adsb.lol (ODbL: commercial use
+allowed with attribution); adsb.fi, airplanes.live and OpenSky are non-commercial only.
 
 ## The logo
 
