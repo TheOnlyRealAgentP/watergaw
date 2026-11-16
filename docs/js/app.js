@@ -1745,7 +1745,7 @@ class App {
       ${sw('tropical', 'Hurricanes', 'NHC cones, tracks, coastal watches/warnings and 7-day outlook')}
       ${trackSeg('rotation', 'Rotation tracks (MRMS)')}
       <h4>More hazards</h4>
-      ${sw('wind', 'Wind (animated)', 'Current 10 m winds flowing across the map')}
+      ${sw('wind', 'Wind (animated)', 'Current 10 m winds from NOAA GFS, decoded on your device')}
       ${sw('quakes', 'Earthquakes', 'USGS: past day, plus magnitude 2.5+ for the past week')}
       ${sw('fires', 'Wildfires', 'Active fires and perimeters from NIFC')}
       ${sw('aviation', 'Aviation', 'METAR flight categories, pilot reports, SIGMETs, G-AIRMETs and CWAs')}
@@ -1940,7 +1940,7 @@ class App {
         <li>Smooth or raw gates, range highlighting and GR-compatible color tables</li>
       </ul>
       <h4>Data</h4>
-      <p class="note">NEXRAD Level II and III and MRMS from the NOAA Open Data Dissemination program (AWS, Unidata). Lightning: NOAA nowCOAST (NLDN/GLD360). Hurricanes: National Hurricane Center. Forecasts: National Weather Service. Earthquakes: USGS. Wildfires: NIFC. Aviation: NOAA Aviation Weather Center. Wind: Open-Meteo. Place search: OpenStreetMap (Photon). Warnings: National Weather Service API. Watches, mesoscale discussions, storm attributes, storm reports, the national mosaic and MRMS rainfall tiles: Iowa Environmental Mesonet. Outlooks: Storm Prediction Center. River gauges and forecasts: National Water Prediction Service. Satellite: NASA GIBS. Basemap: OpenFreeMap / OpenStreetMap. Counties: US Census Bureau.</p>
+      <p class="note">NEXRAD Level II and III and MRMS from the NOAA Open Data Dissemination program (AWS, Unidata). Lightning: NOAA nowCOAST (NLDN/GLD360). Hurricanes: National Hurricane Center. Forecasts: National Weather Service. Earthquakes: USGS. Wildfires: NIFC. Aviation: NOAA Aviation Weather Center. Wind: NOAA GFS via Watergaw Wind. Place search: OpenStreetMap (Photon). Warnings: National Weather Service API. Watches, mesoscale discussions, storm attributes, storm reports, the national mosaic and MRMS rainfall tiles: Iowa Environmental Mesonet. Outlooks: Storm Prediction Center. River gauges and forecasts: National Water Prediction Service. Satellite: NASA GIBS. Basemap: OpenFreeMap / OpenStreetMap. Counties: US Census Bureau.</p>
       <h4>Please note</h4>
       <p class="note">Watergaw is an independent project, not affiliated with NOAA or the National Weather Service. Data can be delayed or missing. Don't rely on it alone for life-safety decisions: follow official NWS warnings and local emergency officials.</p>
       <h4>Why “Watergaw”?</h4>

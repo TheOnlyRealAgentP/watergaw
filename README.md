@@ -126,8 +126,8 @@ Weather Service API. Watches, mesoscale discussions, storm attributes, storm rep
 national mosaic and MRMS rainfall tiles: Iowa Environmental Mesonet. Outlooks: Storm
 Prediction Center. River gauges and forecasts: National Water Prediction Service. Point forecasts:
 National Weather Service API. Earthquakes: USGS. Wildfires: NIFC (WFIGS). Aviation: NOAA Aviation
-Weather Center. Wind: Open-Meteo (free for non-commercial use; a commercial release needs their paid
-plan or another wind source).
+Weather Center. Wind: NOAA GFS through [Watergaw Wind](https://github.com/TheOnlyRealAgentP/watergaw-wind),
+our own open-source engine (vendored in `docs/vendor/`; refresh with `tools/sync_wind.sh`).
 Satellite: NASA GIBS (GOES ABI band 13). Basemap: OpenFreeMap / OpenStreetMap
 contributors. Counties: US Census Bureau.
 
