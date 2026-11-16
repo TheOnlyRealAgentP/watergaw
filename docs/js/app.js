@@ -9,9 +9,10 @@ import { buildStyle, ANCHOR_RADAR } from './style.js';
 import { Overlays, WARNING_TYPES, MRMS_LAYERS, MRMS_LEGEND, MOSAIC_LEGEND, GAUGE_COLORS, TRACKS, TRACK_WINDOWS, esc, mesoRank, hasTvs } from './overlays.js';
 import { searchPlaces, summarize, intensityWord } from './places.js';
 import { loadForecast, charts, days, alertChips, summaryLine, emoji, tempOf } from './forecast.js';
+import { WindField, WindAnimation, WIND_STOPS } from './wind.js';
 import * as U from './units.js';
 
-const VERSION = '1.6.0';
+const VERSION = '1.7.0';
 const FORECAST_LEADS = [10, 20, 30, 40, 50, 60].map((m) => m * 60);
 // Level II moment behind each product that has one.
 const L2_MOMENT = { REF: 'REF', VEL: 'VEL', SRV: 'VEL', ZDR: 'ZDR', CC: 'RHO' };
@@ -39,7 +40,7 @@ const DEFAULTS = {
   basemap: 'dark',
   autoSite: false,
   units: { ...U.DEFAULT_UNITS },
-  overlays: { warnings: true, watches: true, storms: true, reports: false, spc: false, rivers: false, rings: false, sites: true, satellite: false, lightning: false, tropical: false, rotation: 'off', hail: 'off', mrms: 'off', mosaic: 'auto' },
+  overlays: { warnings: true, watches: true, storms: true, reports: false, spc: false, rivers: false, rings: false, sites: true, satellite: false, lightning: false, tropical: false, rotation: 'off', hail: 'off', quakes: false, fires: false, wind: false, aviation: false, mrms: 'off', mosaic: 'auto' },
   warningTypes: Object.fromEntries(WARNING_TYPES.map((w) => [w.key, w.on])),
   srm: { mode: 'auto', dir: 240, kt: 25 },
   filters: {},
@@ -93,6 +94,7 @@ class App {
     this.buildChrome();
     this.buildPanels();
     this.overlays.start();
+    if (this.state.overlays.wind) this.primaryMap.once('load', () => this.updateWind());
     this.updateSiteChip();
     if (this.site) this.loadAll(true);
     else this.showWelcome();
@@ -161,7 +163,7 @@ class App {
 
   buildPanels() {
     const host = $('#panels');
-    for (const p of this.panels) { this.overlays.uninstall(p.map); p.map.remove(); }
+    for (const p of this.panels) { p.windAnim?.destroy(); this.overlays.uninstall(p.map); p.map.remove(); }
     host.innerHTML = '';
     this.panels = [];
     const s = this.state;
@@ -199,6 +201,7 @@ class App {
     this.updatePanelTags();
     this.applyPanelProducts();
     if (this.userLoc) this.placeUserMarkers();
+    if (this.state.overlays.wind) setTimeout(() => this.updateWind(), 500);
   }
 
   onStyleLoad(panel) {
@@ -236,7 +239,11 @@ class App {
     this.overlays.applyAll();
     if (this.state.overlays.rivers) this.overlays.loadGauges().catch(() => {});
     clearTimeout(this.trackTimer);
-    this.trackTimer = setTimeout(() => this.overlays.loadTracks(false), 700);
+    this.trackTimer = setTimeout(() => {
+      this.overlays.loadTracks(false);
+      if (this.state.overlays.aviation) this.overlays.loadAviation(false).catch(() => {});
+      if (this.state.overlays.wind) this.updateWind();
+    }, 700);
     if (this.state.autoSite || (!this.site && panel.map.getZoom() >= 6)) this.maybeAutoSite();
   }
 
@@ -696,6 +703,16 @@ class App {
       parts.push(`<div class="lg"><div class="lg-title">Lightning · last 15 minutes</div><div class="lg-bar" style="background:linear-gradient(90deg, ${ltg.join(', ')})"></div>
         <div class="lg-ends"><span>Fewer strikes</span><span>More strikes</span></div></div>`);
     }
+    const minis = [];
+    if (o.wind) {
+      const sp = U.speed(1, this.state.units.speed);
+      minis.push(miniLegend(`Wind ${sp.unit}`, WIND_STOPS.filter((_, i) => i % 2 === 0 || i === WIND_STOPS.length - 1).map(([v, c]) => [c, U.fmt(v * sp.v)]), 'line'));
+    }
+    if (o.quakes) minis.push(miniLegend('Quakes', [['#ff2d55', 'hour'], ['#ff9f0a', 'day'], ['#ffd60a', 'week']], 'ring'));
+    if (o.fires) minis.push(miniLegend('Fires', [['#ff3b1f', 'wildfire'], ['#ff9f0a', 'burn (zoom in)']]));
+    if (o.aviation) minis.push(miniLegend('Flight', [['#34c759', 'VFR'], ['#3d8bff', 'MVFR'], ['#ff3b30', 'IFR'], ['#ff2dbe', 'LIFR']]));
+    if (o.lightning && !minis.length) { /* lightning keeps its full bar below */ }
+    if (minis.length) parts.push(`<div class="lg lg-minis">${minis.join('')}</div>`);
     for (const kind of ['hail', 'rotation']) {
       if (!o[kind] || o[kind] === 'off') continue;
       const T = TRACKS[kind];
@@ -848,7 +865,7 @@ class App {
     const map = panel.map;
     const pad = 8;
     const box = [[e.point.x - pad, e.point.y - pad], [e.point.x + pad, e.point.y + pad]];
-    const layers = ['ov-trop-pts', 'ov-sites', 'ov-storms', 'ov-lsr', 'ov-gauges'].filter((id) => map.getLayer(id));
+    const layers = ['ov-quakes', 'ov-fires', 'ov-metar', 'ov-pirep', 'ov-trop-pts', 'ov-sites', 'ov-storms', 'ov-lsr', 'ov-gauges'].filter((id) => map.getLayer(id));
     const hit = map.queryRenderedFeatures(box, { layers })[0];
     if (hit) {
       const p = hit.properties;
@@ -863,7 +880,7 @@ class App {
   inspectAt(panel, lngLat) {
     const map = panel.map;
     const pt = map.project(lngLat);
-    const areaLayers = ['ov-warn-fill', 'ov-trop-ww', 'ov-trop-cone', 'ov-trop-outlook', 'ov-watch', 'ov-mcd', 'ov-spc-fill'].filter((id) => map.getLayer(id));
+    const areaLayers = ['ov-warn-fill', 'ov-perims', 'ov-airsig', 'ov-trop-ww', 'ov-trop-cone', 'ov-trop-outlook', 'ov-watch', 'ov-mcd', 'ov-spc-fill'].filter((id) => map.getLayer(id));
     const areas = map.queryRenderedFeatures(pt, { layers: areaLayers });
     const seen = new Set();
     const chips = [];
@@ -889,9 +906,15 @@ class App {
     }
     this.inspectPoint = { name: 'This spot', lat: lngLat.lat, lon: lngLat.lng };
     const extra = ['hail', 'rotation'].map((k) => this.overlays.trackAt(k, lngLat.lat, lngLat.lng)).filter(Boolean);
+    const wv = this.state.overlays.wind && this.wind?.at(lngLat.lat, lngLat.lng);
+    if (wv) {
+      const sp = Math.hypot(wv[0], wv[1]);
+      const from = (Math.atan2(-wv[0], -wv[1]) * 180 / Math.PI + 360) % 360;
+      extra.push(`Wind ${U.fmtU(U.speed(sp, this.state.units.speed))} from the ${U.compass(from)}`);
+    }
     card.innerHTML = `<button class="icon-btn close" data-act="close-inspect" aria-label="Close">${ICON.x}</button>
       <div class="vals">${vals.map((v) => `<div><b>${this.simple ? '' : v.prod.short}</b><span>${esc(v.text)}</span></div>`).join('') || '<div><span>No radar loaded here</span></div>'}
-      ${extra.map((t) => `<div><b>MRMS</b><span>${esc(t)}</span></div>`).join('')}</div>
+      ${extra.map((t) => `<div><b>${t.startsWith('Wind') ? 'WIND' : 'MRMS'}</b><span>${esc(t)}</span></div>`).join('')}</div>
       ${geo}<div class="sub coords">${lngLat.lat.toFixed(4)}, ${lngLat.lng.toFixed(4)}</div>
       <div class="now-btns"><button class="btn small" data-act="forecast-here">${ICON.chart}<span>Forecast here</span></button></div>
       ${chips.length ? `<div class="chips">${chips.join('')}</div>` : ''}`;
@@ -1266,6 +1289,28 @@ class App {
     $('#xs-legend').style.background = cssGradient(pal, lo, hi);
     const show = (v) => (mom === 'VEL' ? U.fmtU(U.speed(v, u.speed)) : `${v}${unit ? ' ' + unit : ''}`);
     $('#xs-ends').innerHTML = `<span>${show(lo)}</span><span>${show(hi)}</span>`;
+  }
+
+  // ======================================================== wind
+
+  async updateWind() {
+    const on = this.state.overlays.wind;
+    if (!on) {
+      for (const p of this.panels) { p.windAnim?.destroy(); p.windAnim = null; }
+      return;
+    }
+    this.wind ||= new WindField();
+    const b = this.primaryMap.getBounds();
+    try {
+      if (!this.wind.covers(b)) await this.wind.load(b);
+    } catch (e) {
+      this.toast(`Couldn't load wind: ${e.message}`);
+      return;
+    }
+    for (const p of this.panels) {
+      if (!p.windAnim) p.windAnim = new WindAnimation(p.map, this.wind);
+      p.windAnim.rebuild();
+    }
   }
 
   // ======================================================== alerts
@@ -1699,6 +1744,11 @@ class App {
       ${sw('storms', 'Storm tracks', 'Cell IDs, hail, rotation and 60-minute forecast paths')}
       ${sw('tropical', 'Hurricanes', 'NHC cones, tracks, coastal watches/warnings and 7-day outlook')}
       ${trackSeg('rotation', 'Rotation tracks (MRMS)')}
+      <h4>More hazards</h4>
+      ${sw('wind', 'Wind (animated)', 'Current 10 m winds flowing across the map')}
+      ${sw('quakes', 'Earthquakes', 'USGS: past day, plus magnitude 2.5+ for the past week')}
+      ${sw('fires', 'Wildfires', 'Active fires and perimeters from NIFC')}
+      ${sw('aviation', 'Aviation', 'METAR flight categories, pilot reports, SIGMETs, G-AIRMETs and CWAs')}
       ${trackSeg('hail', 'Hail tracks (MRMS)')}
       ${sw('reports', 'Storm reports', 'Tornado, hail, wind and flood reports')}
       ${sw('spc', 'SPC Day 1 outlook')}
@@ -1716,6 +1766,9 @@ class App {
       ${sw('storms', 'Storm paths', 'Where strong storms are heading over the next hour')}
       ${sw('tropical', 'Hurricanes', 'Forecast cones and tracks from the National Hurricane Center')}
       <label class="switch"><input type="checkbox" id="hail-today" ${o.hail === '1440' ? 'checked' : ''}><span class="sw"></span><span class="lbl">Hail today<small>Where hail fell in the last 24 hours, and how big</small></span></label>
+      ${sw('wind', 'Wind', 'Watch the wind flow across the map')}
+      ${sw('quakes', 'Earthquakes', 'Recent earthquakes, sized by strength')}
+      ${sw('fires', 'Wildfires', 'Active fires and how big they are')}
       ${sw('rivers', 'River levels', 'Rivers near or above flood stage')}
       ${sw('satellite', 'Clouds', 'Satellite view of clouds')}
       ${mrms}
@@ -1727,6 +1780,7 @@ class App {
       if (c.checked) this.overlays.enable(c.dataset.ov);
       else this.overlays.applyAll();
       if (c.dataset.ov === 'rings') this.overlays.setRings();
+      if (c.dataset.ov === 'wind') this.updateWind();
       this.renderLegend();
     }));
     $$('[data-wt]', body).forEach((b) => b.addEventListener('click', () => {
@@ -1873,7 +1927,10 @@ class App {
       <ul class="feat">
         <li>What's coming to your places, in plain words, with the next hour of rain projected ahead</li>
         <li>Place search, saved places and alerts for warnings and incoming rain</li>
+        <li>Forecast charts for any place: temperature, rain and snow, wind, alerts and 7 days</li>
+        <li>All radars at once, or one station's full-resolution scans</li>
         <li>Lightning, hurricanes (NHC), hail and rotation tracks (MRMS), river levels and rain totals</li>
+        <li>Animated wind, earthquakes (USGS), wildfires (NIFC) and aviation weather (METARs, PIREPs, SIGMETs, G-AIRMETs)</li>
         <li>Super-resolution reflectivity and velocity, and every elevation from the full Level II scan</li>
         <li>Storm-relative velocity at full resolution with live or manual storm motion</li>
         <li>Dual-pol: correlation coefficient, ZDR, KDP and hydrometeor classification</li>
@@ -1883,7 +1940,7 @@ class App {
         <li>Smooth or raw gates, range highlighting and GR-compatible color tables</li>
       </ul>
       <h4>Data</h4>
-      <p class="note">NEXRAD Level II and III and MRMS from the NOAA Open Data Dissemination program (AWS, Unidata). Lightning: NOAA nowCOAST (NLDN/GLD360). Hurricanes: National Hurricane Center. Place search: OpenStreetMap (Photon). Warnings: National Weather Service API. Watches, mesoscale discussions, storm attributes, storm reports, the national mosaic and MRMS rainfall tiles: Iowa Environmental Mesonet. Outlooks: Storm Prediction Center. River gauges and forecasts: National Water Prediction Service. Satellite: NASA GIBS. Basemap: OpenFreeMap / OpenStreetMap. Counties: US Census Bureau.</p>
+      <p class="note">NEXRAD Level II and III and MRMS from the NOAA Open Data Dissemination program (AWS, Unidata). Lightning: NOAA nowCOAST (NLDN/GLD360). Hurricanes: National Hurricane Center. Forecasts: National Weather Service. Earthquakes: USGS. Wildfires: NIFC. Aviation: NOAA Aviation Weather Center. Wind: Open-Meteo. Place search: OpenStreetMap (Photon). Warnings: National Weather Service API. Watches, mesoscale discussions, storm attributes, storm reports, the national mosaic and MRMS rainfall tiles: Iowa Environmental Mesonet. Outlooks: Storm Prediction Center. River gauges and forecasts: National Water Prediction Service. Satellite: NASA GIBS. Basemap: OpenFreeMap / OpenStreetMap. Counties: US Census Bureau.</p>
       <h4>Please note</h4>
       <p class="note">Watergaw is an independent project, not affiliated with NOAA or the National Weather Service. Data can be delayed or missing. Don't rely on it alone for life-safety decisions: follow official NWS warnings and local emergency officials.</p>
       <h4>Why “Watergaw”?</h4>
@@ -1956,6 +2013,10 @@ function ageClass(t) {
 
 function stepLegend(title, items) {
   return `<div class="lg"><div class="lg-title">${title}</div><div class="lg-steps">${items.map(([c, l]) => `<span><i style="background:${c}"></i>${l}</span>`).join('')}</div></div>`;
+}
+
+function miniLegend(title, items, shape = 'dot') {
+  return `<span class="lg-mini"><b>${title}</b>${items.map(([c, l]) => `<span><i class="${shape}" style="--c:${c}"></i>${l}</span>`).join('')}</span>`;
 }
 
 function segBind(el, fn) {

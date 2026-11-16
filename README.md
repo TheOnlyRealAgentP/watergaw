@@ -24,8 +24,12 @@ Every feature that other radar apps put behind a subscription is free here.
   around 4:35 PM (in about 20 min)", with a next-hour bar chart, active warnings and approaching storms.
 - **Future radar:** the next hour of rain, projected from the radar's own scans (shown as a forecast).
 - **Alerts** when a warning covers your location or a saved place, or rain is about to start (while the app is open).
+- **Forecast & charts** for any place, or any spot you tap: 48-hour temperature, rain and snow, and wind
+  charts with alerts shaded in, plus a 7-day outlook (National Weather Service).
+- **All radars or one station:** a seamless, animated national mosaic, or one radar's own full-resolution scans.
 - **Lightning**, **hurricanes** (NHC cones, tracks, coastal watches/warnings, 7-day outlook), **hail today**,
-  **river levels** and **rain totals**, all with friendly labels.
+  **animated wind**, **earthquakes** (USGS), **wildfires** (NIFC), **river levels** and **rain totals**,
+  all with friendly labels.
 
 **For weather pros (Pro mode)**
 - **Native radar data:** super-resolution reflectivity (0.25 km × 0.5°) and velocity at six Level III
@@ -41,6 +45,8 @@ Every feature that other radar apps put behind a subscription is free here.
 - **Storm tracks** with hail, rotation and arrival times. **Warnings** with damage-threat tags, watches,
   mesoscale discussions, the SPC outlook and storm reports.
 - **Water:** NWPS river gauges with forecast hydrographs and flood stages, plus MRMS rainfall totals.
+- **Aviation:** METAR flight categories, pilot reports (turbulence, icing), SIGMETs, G-AIRMETs and
+  center weather advisories.
 - Installable (PWA), works offline once loaded, shareable links.
 
 ## How it works
@@ -118,7 +124,10 @@ NEXRAD Level II and III and MRMS: NOAA Open Data Dissemination (AWS, Unidata). L
 nowCOAST (NLDN/GLD360). Hurricanes: National Hurricane Center. Place search: OpenStreetMap via Photon. Warnings: National
 Weather Service API. Watches, mesoscale discussions, storm attributes, storm reports,
 national mosaic and MRMS rainfall tiles: Iowa Environmental Mesonet. Outlooks: Storm
-Prediction Center. River gauges and forecasts: National Water Prediction Service.
+Prediction Center. River gauges and forecasts: National Water Prediction Service. Point forecasts:
+National Weather Service API. Earthquakes: USGS. Wildfires: NIFC (WFIGS). Aviation: NOAA Aviation
+Weather Center. Wind: Open-Meteo (free for non-commercial use; a commercial release needs their paid
+plan or another wind source).
 Satellite: NASA GIBS (GOES ABI band 13). Basemap: OpenFreeMap / OpenStreetMap
 contributors. Counties: US Census Bureau.
 

@@ -477,6 +477,14 @@ body.src-all #product-strip, body.src-all #tilts, body.src-all .prod-chip { disp
 .day-row .dr i { position: absolute; top: 0; bottom: 0; border-radius: 3px; background: linear-gradient(90deg, #64d2ff, #ffd60a, #ff9f0a); }
 .day-row p { margin: 0 0 10px; font-size: 13px; color: var(--muted); }
 @media (min-width: 760px) { .sheet[data-kind="forecast"] { width: min(560px, calc(100vw - 90px)); } }
+.lg-minis { display: flex; flex-direction: row; flex-wrap: wrap; gap: 4px 16px; }
+.lg-mini { display: inline-flex; align-items: center; gap: 8px; font-size: 11px; color: var(--muted); flex-wrap: wrap; }
+.lg-mini b { color: var(--text); font-weight: 600; }
+.lg-mini span { display: inline-flex; align-items: center; gap: 4px; }
+.lg-mini i { display: inline-block; width: 9px; height: 9px; border-radius: 50%; background: var(--c); }
+.lg-mini i.ring { background: transparent; border: 2px solid var(--c); width: 10px; height: 10px; box-sizing: border-box; }
+.lg-mini i.line { width: 14px; height: 3px; border-radius: 2px; }
+.wind-canvas { position: absolute; inset: 0; pointer-events: none; z-index: 1; }
 .lg-ends { display: flex; justify-content: space-between; font-size: 10.5px; color: var(--muted); margin-top: 2px; }
 @media (max-width: 520px) {
   .fc-banner { top: calc(var(--top) + 92px); }

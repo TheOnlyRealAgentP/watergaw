@@ -50,6 +50,13 @@ const EMPTY = { type: 'FeatureCollection', features: [] };
 const NOWCOAST = 'https://nowcoast.noaa.gov/geoserver/ows';
 const NHC = 'https://mapservices.weather.noaa.gov/tropical/rest/services/tropical/NHC_tropical_weather/MapServer';
 const MRMS = 'https://noaa-mrms-pds.s3.amazonaws.com';
+const USGS = 'https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary';
+const WFIGS = 'https://services3.arcgis.com/T4QMspbfLg3qTGWY/arcgis/rest/services';
+const AWC = 'https://mapservices.weather.noaa.gov/vector/rest/services/aviation/awc_aviation_weather/MapServer';
+export const FLIGHT_CAT = { VFR: '#34c759', MVFR: '#3d8bff', IFR: '#ff3b30', LIFR: '#ff2dbe' };
+const AIR_HAZ = { CONVECTIVE: ['Convective SIGMET', '#ff3b30'], TS: ['Thunderstorms', '#ff3b30'], TURB: ['Turbulence', '#ff9f0a'], 'TURB-HI': ['Turbulence (high)', '#ff9f0a'],
+  'TURB-LO': ['Turbulence (low)', '#ffb340'], ICE: ['Icing', '#64d2ff'], FZLVL: ['Freezing level', '#5ac8fa'], IFR: ['IFR conditions', '#bf5af2'], MT_OBSC: ['Mountains obscured', '#c69c6d'],
+  SFC_WND: ['Strong surface wind', '#d9b38c'], LLWS: ['Low-level wind shear', '#ff6b6b'], ASH: ['Volcanic ash', '#8e8e93'] };
 
 // MRMS track products: rotation (0-2 km azimuthal shear, units of 0.001 s^-1) and hail (MESH, mm).
 export const TRACKS = {
@@ -114,11 +121,42 @@ export class Overlays {
 
   // ---------------------------------------------------------------- install
 
+  /** A flame icon drawn on a canvas (no emoji font needed). */
+  flameIcon(map) {
+    if (map.hasImage('flame')) return;
+    const s = 40, c = document.createElement('canvas');
+    c.width = c.height = s;
+    const g = c.getContext('2d');
+    const flame = (scale, color) => {
+      g.save();
+      g.translate(s / 2, s * 0.95);
+      g.scale(scale, scale);
+      g.beginPath();
+      g.moveTo(0, 0);
+      g.bezierCurveTo(-14, -2, -16, -16, -6, -28);
+      g.bezierCurveTo(-6, -20, -2, -18, 0, -18);
+      g.bezierCurveTo(-2, -26, 4, -32, 4, -36);
+      g.bezierCurveTo(12, -26, 16, -16, 14, -8);
+      g.bezierCurveTo(12, -2, 6, 0, 0, 0);
+      g.fillStyle = color;
+      g.fill();
+      g.restore();
+    };
+    g.shadowColor = 'rgba(0,0,0,0.7)';
+    g.shadowBlur = 3;
+    flame(1, '#ff3b1f');
+    g.shadowBlur = 0;
+    flame(0.62, '#ff9f0a');
+    flame(0.32, '#ffe066');
+    map.addImage('flame', g.getImageData(0, 0, s, s), { pixelRatio: 2 });
+  }
+
   install(map) {
     this.maps.add(map);
+    this.flameIcon(map);
     const add = (id, layer, before) => { if (!map.getLayer(id)) map.addLayer({ id, ...layer }, before && map.getLayer(before) ? before : undefined); };
     const src = (id, def) => { if (!map.getSource(id)) map.addSource(id, def); };
-    for (const name of ['spc', 'watch', 'mcd', 'warn', 'rings', 'storms', 'tracks', 'lsr', 'gauges', 'sites', 'trop-outlook', 'trop-cone', 'trop-ww', 'trop-line', 'trop-pts', 'xs']) {
+    for (const name of ['spc', 'watch', 'mcd', 'warn', 'rings', 'storms', 'tracks', 'lsr', 'gauges', 'sites', 'trop-outlook', 'trop-cone', 'trop-ww', 'trop-line', 'trop-pts', 'xs', 'quakes', 'fires', 'perims', 'metar', 'airsig', 'pirep']) {
       src(`ov-${name}`, { type: 'geojson', data: this.data[name] || EMPTY });
     }
     // Rasters sit under the radar.
@@ -137,6 +175,10 @@ export class Overlays {
     add('ov-spokes', { type: 'line', source: 'ov-rings', filter: ['==', ['get', 'kind'], 'spoke'], paint: { 'line-color': 'rgba(255,255,255,0.2)', 'line-width': 1 } }, ANCHOR_OVERLAY);
     add('ov-watch', { type: 'line', source: 'ov-watch', paint: { 'line-color': ['get', 'color'], 'line-width': 2.5, 'line-dasharray': [4, 2] } }, ANCHOR_OVERLAY);
     add('ov-mcd', { type: 'line', source: 'ov-mcd', paint: { 'line-color': '#4aa3ff', 'line-width': 2, 'line-dasharray': [2, 2] } }, ANCHOR_OVERLAY);
+    add('ov-perims', { type: 'fill', source: 'ov-perims', paint: { 'fill-color': '#ff6b2d', 'fill-opacity': 0.28 } }, ANCHOR_OVERLAY);
+    add('ov-perims-line', { type: 'line', source: 'ov-perims', paint: { 'line-color': '#ff6b2d', 'line-width': 1.5 } }, ANCHOR_OVERLAY);
+    add('ov-airsig', { type: 'fill', source: 'ov-airsig', paint: { 'fill-color': ['get', 'color'], 'fill-opacity': 0.1 } }, ANCHOR_OVERLAY);
+    add('ov-airsig-line', { type: 'line', source: 'ov-airsig', paint: { 'line-color': ['get', 'color'], 'line-width': 1.8, 'line-dasharray': [3, 2] } }, ANCHOR_OVERLAY);
     add('ov-trop-outlook', { type: 'fill', source: 'ov-trop-outlook', paint: { 'fill-color': ['get', 'color'], 'fill-opacity': 0.18 } }, ANCHOR_OVERLAY);
     add('ov-trop-outlook-line', { type: 'line', source: 'ov-trop-outlook', paint: { 'line-color': ['get', 'color'], 'line-width': 2, 'line-dasharray': [3, 2] } }, ANCHOR_OVERLAY);
     add('ov-trop-cone', { type: 'fill', source: 'ov-trop-cone', paint: { 'fill-color': '#ffffff', 'fill-opacity': 0.13 } }, ANCHOR_OVERLAY);
@@ -177,6 +219,28 @@ export class Overlays {
       paint: { 'text-color': '#0b0e13' } });
     add('ov-trop-pts-time', { type: 'symbol', source: 'ov-trop-pts', minzoom: 4,
       layout: { 'text-field': ['get', 'when'], 'text-font': ['Noto Sans Regular'], 'text-size': 10.5, 'text-offset': [0, 1.5], 'text-anchor': 'top' },
+      paint: { 'text-color': '#ffffff', 'text-halo-color': 'rgba(0,0,0,0.9)', 'text-halo-width': 1.3 } });
+    add('ov-metar', { type: 'circle', source: 'ov-metar', minzoom: 4.5,
+      paint: { 'circle-radius': ['interpolate', ['linear'], ['zoom'], 5, 3, 10, 6.5], 'circle-color': ['get', 'color'], 'circle-stroke-color': '#000', 'circle-stroke-width': 1 } });
+    add('ov-metar-label', { type: 'symbol', source: 'ov-metar', minzoom: 7.5,
+      layout: { 'text-field': ['get', 'station_id'], 'text-font': ['Noto Sans Regular'], 'text-size': 10, 'text-offset': [0, 1.1], 'text-anchor': 'top' },
+      paint: { 'text-color': '#e5e9f0', 'text-halo-color': 'rgba(0,0,0,0.9)', 'text-halo-width': 1.2 } });
+    add('ov-pirep', { type: 'circle', source: 'ov-pirep', minzoom: 4,
+      paint: { 'circle-radius': 4.5, 'circle-color': ['get', 'color'], 'circle-stroke-color': '#000', 'circle-stroke-width': 1.2 } });
+    // Wildfires always; prescribed burns only once zoomed in.
+    add('ov-fires', { type: 'symbol', source: 'ov-fires', filter: ['any', ['!', ['get', 'rx']], ['>=', ['zoom'], 7]],
+      layout: { 'icon-image': 'flame', 'icon-size': ['interpolate', ['linear'], ['get', 'logAcres'], 0, 0.7, 3, 1.1, 5, 1.8], 'icon-allow-overlap': true, 'icon-anchor': 'bottom',
+        'symbol-sort-key': ['get', 'acres'] },
+      paint: { 'icon-opacity': ['case', ['get', 'rx'], 0.7, 1] } });
+    add('ov-fires-label', { type: 'symbol', source: 'ov-fires', minzoom: 6.5, filter: ['any', ['!', ['get', 'rx']], ['>=', ['zoom'], 8]],
+      layout: { 'text-field': ['get', 'label'], 'text-font': ['Noto Sans Bold'], 'text-size': 10.5, 'text-offset': [0, 0.3], 'text-anchor': 'top', 'text-optional': true },
+      paint: { 'text-color': '#ffd0a8', 'text-halo-color': 'rgba(0,0,0,0.95)', 'text-halo-width': 1.3 } });
+    add('ov-quakes', { type: 'circle', source: 'ov-quakes',
+      paint: { 'circle-radius': ['interpolate', ['exponential', 1.6], ['get', 'mag'], 1, 3, 4, 9, 7, 30], 'circle-color': ['get', 'color'], 'circle-opacity': 0.18,
+        'circle-stroke-color': ['get', 'color'], 'circle-stroke-width': ['interpolate', ['linear'], ['get', 'mag'], 1, 1.2, 5, 2.5] } });
+    add('ov-quakes-core', { type: 'circle', source: 'ov-quakes', paint: { 'circle-radius': 1.8, 'circle-color': ['get', 'color'] } });
+    add('ov-quakes-label', { type: 'symbol', source: 'ov-quakes', minzoom: 4, filter: ['>=', ['get', 'mag'], 3],
+      layout: { 'text-field': ['get', 'magLabel'], 'text-font': ['Noto Sans Bold'], 'text-size': 10, 'text-allow-overlap': false, 'text-offset': [0, -1.4] },
       paint: { 'text-color': '#ffffff', 'text-halo-color': 'rgba(0,0,0,0.9)', 'text-halo-width': 1.3 } });
     add('ov-xs-casing', { type: 'line', source: 'ov-xs', filter: ['==', ['geometry-type'], 'LineString'], paint: { 'line-color': '#000', 'line-width': 6, 'line-opacity': 0.7 } });
     add('ov-xs', { type: 'line', source: 'ov-xs', filter: ['==', ['geometry-type'], 'LineString'], paint: { 'line-color': '#ffffff', 'line-width': 3 } });
@@ -257,6 +321,9 @@ export class Overlays {
     this.vis(map, ['ov-sites', 'ov-sites-label'], o.sites);
     this.vis(map, ['ov-sat'], o.satellite);
     this.vis(map, ['ov-lightning'], o.lightning);
+    this.vis(map, ['ov-quakes', 'ov-quakes-core', 'ov-quakes-label'], o.quakes);
+    this.vis(map, ['ov-fires', 'ov-fires-label', 'ov-perims', 'ov-perims-line'], o.fires);
+    this.vis(map, ['ov-metar', 'ov-metar-label', 'ov-pirep', 'ov-airsig', 'ov-airsig-line'], o.aviation);
     this.vis(map, ['ov-track-rotation'], o.rotation && o.rotation !== 'off');
     this.vis(map, ['ov-track-hail'], o.hail && o.hail !== 'off');
     this.vis(map, ['ov-trop-outlook', 'ov-trop-outlook-line', 'ov-trop-cone', 'ov-trop-cone-line', 'ov-trop-ww', 'ov-trop-line', 'ov-trop-line-past', 'ov-trop-pts', 'ov-trop-pts-label', 'ov-trop-pts-time'], o.tropical);
@@ -299,6 +366,9 @@ export class Overlays {
     every('mrms', 600e3, () => this.bumpMrms());
     every('lightning', 300e3, () => this.bumpLightning());
     every('tracks', 240e3, () => this.loadTracks(true));
+    every('quakes', 120e3, () => (this.s.overlays.quakes ? this.loadQuakes() : null));
+    every('fires', 900e3, () => (this.s.overlays.fires ? this.loadFires() : null));
+    every('aviation', 300e3, () => (this.s.overlays.aviation ? this.loadAviation(true) : null));
     every('tropical', 900e3, () => (this.s.overlays.tropical ? this.loadTropical() : null));
     this.setSites();
     this.setRings();
@@ -314,6 +384,9 @@ export class Overlays {
       if (name === 'mrms') this.reinstallRaster('ov-mrms');
       if (name === 'lightning') this.bumpLightning(true);
       if (name === 'rotation' || name === 'hail') await this.loadTracks(true);
+      if (name === 'quakes') await this.loadQuakes();
+      if (name === 'fires') await this.loadFires();
+      if (name === 'aviation') await this.loadAviation(true);
       if (name === 'tropical') {
         const n = await this.loadTropical();
         if (!n) this.app.toast('No tropical storms or hurricanes are active right now.');
@@ -593,6 +666,91 @@ export class Overlays {
     throw new Error('no recent GOES frame');
   }
 
+  // ---------------------------------------------------------------- earthquakes, fires, aviation
+
+  async loadQuakes() {
+    const [day, week] = await Promise.all([getJSON(`${USGS}/all_day.geojson`), getJSON(`${USGS}/2.5_week.geojson`)]);
+    const seen = new Set();
+    const now = Date.now();
+    const feats = [];
+    for (const f of [...day.features, ...week.features]) {
+      if (seen.has(f.id)) continue;
+      seen.add(f.id);
+      const p = f.properties;
+      const hrs = (now - p.time) / 3600e3;
+      const color = hrs < 1 ? '#ff2d55' : hrs < 24 ? '#ff9f0a' : '#ffd60a';
+      feats.push({ ...f, properties: { kind: 'quake', mag: Math.max(0, p.mag ?? 0), magLabel: (p.mag ?? 0).toFixed(1), color, place: p.place, time: p.time, depth: f.geometry.coordinates[2],
+        felt: p.felt, tsunami: p.tsunami, alert: p.alert, url: p.url, magType: p.magType } });
+    }
+    feats.sort((a, b) => a.properties.mag - b.properties.mag);
+    this.setData('quakes', { type: 'FeatureCollection', features: feats });
+  }
+
+  async loadFires() {
+    const q = 'query?where=1%3D1&outFields=*&f=geojson';
+    const [inc, per] = await Promise.allSettled([
+      getJSON(`${WFIGS}/WFIGS_Incident_Locations_Current/FeatureServer/0/${q}&resultRecordCount=2000`),
+      getJSON(`${WFIGS}/WFIGS_Interagency_Perimeters_Current/FeatureServer/0/query?where=1%3D1&outFields=poly_IncidentName,poly_GISAcres,attr_PercentContained,attr_IncidentTypeCategory&f=geojson&geometryPrecision=4&maxAllowableOffset=0.002`),
+    ]);
+    if (inc.status === 'fulfilled') {
+      const feats = (inc.value.features || []).filter((f) => f.geometry).map((f) => {
+        const p = f.properties;
+        const rx = p.IncidentTypeCategory === 'RX';
+        const acres = p.IncidentSize || p.DiscoveryAcres || 0;
+        return { ...f, properties: { kind: 'fire', name: p.IncidentName, acres, logAcres: Math.log10(Math.max(1, acres)), rx, color: rx ? '#ff9f0a' : '#ff453a',
+          label: `${(p.IncidentName || '').replace(/\b\w/g, (c) => c.toUpperCase()).toLowerCase().replace(/(^|\s)\S/g, (c) => c.toUpperCase())}${acres >= 100 ? ` · ${Math.round(acres).toLocaleString()} ac` : ''}`,
+          contained: p.PercentContained, cause: p.FireCause, discovered: p.FireDiscoveryDateTime, state: (p.POOState || '').replace('US-', ''), county: p.POOCounty, updated: p.ModifiedOnDateTime_dt } };
+      });
+      feats.sort((a, b) => a.properties.acres - b.properties.acres);
+      this.setData('fires', { type: 'FeatureCollection', features: feats });
+    }
+    if (per.status === 'fulfilled') {
+      for (const f of per.value.features || []) f.properties = { ...f.properties, kind: 'perim' };
+      this.setData('perims', per.value);
+    }
+    if (inc.status === 'rejected') throw inc.reason;
+  }
+
+  async loadAviation(force) {
+    const map = this.app.primaryMap;
+    if (!map) return;
+    const b = map.getBounds();
+    const box = [b.getWest(), b.getSouth(), b.getEast(), b.getNorth()].map((v) => Math.round(v * 2) / 2);
+    const key = box.join(',');
+    if (!force && key === this.avKey) return;
+    this.avKey = key;
+    const geom = `geometry=${box.join(',')}&geometryType=esriGeometryEnvelope&inSR=4326&spatialRel=esriSpatialRelIntersects`;
+    const q = (layer, extra = '') => getJSON(`${AWC}/${layer}/query?where=1%3D1&outFields=*&f=geojson&${extra}`);
+    const [metar, pirep, sigmet, gairmet, cwa] = await Promise.allSettled([
+      map.getZoom() >= 4.5 ? q(34, `${geom}&resultRecordCount=2000`) : Promise.resolve({ features: [] }),
+      map.getZoom() >= 4 ? q(0, `${geom}&resultRecordCount=1000`) : Promise.resolve({ features: [] }),
+      q(111), q(110, "where=forecast%3D'0'"), q(113),
+    ]);
+    if (metar.status === 'fulfilled') {
+      const feats = (metar.value.features || []).map((f) => ({ ...f, properties: { ...f.properties, kind: 'metar', color: FLIGHT_CAT[f.properties.flight_category] || '#8e8e93' } }));
+      this.setData('metar', { type: 'FeatureCollection', features: feats });
+    }
+    if (pirep.status === 'fulfilled') {
+      const feats = (pirep.value.features || []).filter((f) => f.properties.turbulence_intensity || f.properties.icing_intensity)
+        .map((f) => ({ ...f, properties: { ...f.properties, kind: 'pirep', color: f.properties.icing_intensity ? '#64d2ff' : '#ff9f0a' } }));
+      this.setData('pirep', { type: 'FeatureCollection', features: feats });
+    }
+    const areas = [];
+    const addAreas = (r, type) => {
+      if (r.status !== 'fulfilled') return;
+      for (const f of r.value.features || []) {
+        const p = f.properties;
+        const hz = String(p.hazard || '').toUpperCase().trim();
+        const [label, color] = AIR_HAZ[hz] || [hz || type, '#bf5af2'];
+        areas.push({ ...f, properties: { ...p, kind: 'airsig', type, label, color } });
+      }
+    };
+    addAreas(sigmet, 'SIGMET');
+    addAreas(gairmet, 'G-AIRMET');
+    addAreas(cwa, 'Center Weather Advisory');
+    this.setData('airsig', { type: 'FeatureCollection', features: areas });
+  }
+
   // ---------------------------------------------------------------- MRMS hail & rotation tracks
 
   trackBox() {
@@ -866,6 +1024,62 @@ export class Overlays {
     }
     if (p.kind === 'spc') {
       return { title: `SPC Day 1: ${esc(p.LABEL2 || p.LABEL || '')}`, color: p.fill || '#888', html: `<p class="note">Storm Prediction Center convective outlook.</p>` };
+    }
+    if (p.kind === 'quake') {
+      const depthKm = p.depth;
+      const rows = [
+        ['When', `${dateTime(p.time / 1000, this.s.utc)}`],
+        ['Magnitude', `${fmt(p.mag, 1)} ${esc(p.magType || '')}`],
+        ['Depth', fmtU(distance(depthKm, U.distance === 'km' ? 'km' : U.distance), 1)],
+        ['People who felt it', p.felt ? fmt(p.felt) : '—'],
+        ['Tsunami', p.tsunami ? 'Possible: check tsunami.gov' : 'No tsunami alert'],
+      ];
+      return { title: `M${fmt(p.mag, 1)} earthquake`, color: p.color,
+        html: `<p class="meta">${esc(p.place || '')}</p><table class="kv">${rows.map(([k, v]) => `<tr><th>${k}</th><td>${v}</td></tr>`).join('')}</table>
+          <p class="note">From the US Geological Survey. <a href="${esc(p.url)}" target="_blank" rel="noopener">Details and "Did you feel it?"</a></p>` };
+    }
+    if (p.kind === 'fire') {
+      const rows = [
+        ['Size', p.acres ? `${Math.round(p.acres).toLocaleString()} acres` : '—'],
+        ['Contained', p.contained != null ? `${p.contained}%` : '—'],
+        ['Type', p.rx ? 'Prescribed burn' : 'Wildfire'],
+        ['Started', p.discovered ? dateTime(p.discovered / 1000, this.s.utc) : '—'],
+        ['Cause', esc(p.cause || '—')],
+        ['Where', [p.county, p.state].filter(Boolean).map(esc).join(', ') || '—'],
+      ];
+      return { title: esc(p.label.split(' · ')[0] || 'Fire'), color: p.color,
+        html: `<table class="kv">${rows.map(([k, v]) => `<tr><th>${k}</th><td>${v}</td></tr>`).join('')}</table>
+          <p class="note">National Interagency Fire Center (WFIGS)${p.updated ? `, updated ${dateTime(p.updated / 1000, this.s.utc)}` : ''}. Follow local officials for evacuations.</p>` };
+    }
+    if (p.kind === 'perim') {
+      return { title: `${esc(p.poly_IncidentName || 'Fire')} perimeter`, color: '#ff6b2d',
+        html: `<table class="kv"><tr><th>Mapped area</th><td>${p.poly_GISAcres ? `${Math.round(p.poly_GISAcres).toLocaleString()} acres` : '—'}</td></tr><tr><th>Contained</th><td>${p.attr_PercentContained != null ? `${p.attr_PercentContained}%` : '—'}</td></tr></table>` };
+    }
+    if (p.kind === 'metar') {
+      const cat = p.flight_category || '—';
+      const rows = [
+        ['Flight category', `<span style="color:${FLIGHT_CAT[cat] || 'inherit'};font-weight:700">${esc(cat)}</span>`],
+        ['Wind', p.wind_speed_kt != null ? `${p.winddir ?? 'VRB'}° at ${fmtU(knotsTo(p.wind_speed_kt, U.speed))}${p.wind_gust_kt ? `, gusting ${fmtU(knotsTo(p.wind_gust_kt, U.speed))}` : ''}` : '—'],
+        ['Visibility', p.visibility_statute_mi ? `${esc(p.visibility_statute_mi)} mi` : '—'],
+        ['Sky', esc(p.sky_cover || '—')],
+        ['Temp / dew point', p.temp_c != null ? `${fmt(p.temp_c, 0)}° / ${fmt(p.dewpoint_c, 0)}° C` : '—'],
+        ['Altimeter', p.altim_in_hg ? `${fmt(p.altim_in_hg, 2)} inHg` : '—'],
+      ];
+      return { title: `${esc(p.station_id)} METAR`, color: FLIGHT_CAT[cat] || '#8e8e93',
+        html: `<pre class="bulletin">${esc(p.raw_text || '')}</pre><table class="kv">${rows.map(([k, v]) => `<tr><th>${k}</th><td>${v}</td></tr>`).join('')}</table>
+          <p class="note">Observed ${p.observation_time ? dateTime(p.observation_time / 1000, this.s.utc) : ''}. NOAA Aviation Weather Center.</p>` };
+    }
+    if (p.kind === 'pirep') {
+      const bits = [p.turbulence_intensity && `Turbulence: ${esc(p.turbulence_intensity)} ${esc(p.turbulence_type || '')}`, p.icing_intensity && `Icing: ${esc(p.icing_intensity)} ${esc(p.icing_type || '')}`].filter(Boolean);
+      return { title: 'Pilot report', color: p.color,
+        html: `<p>${bits.join('<br>')}</p><table class="kv"><tr><th>Altitude</th><td>${p.altitude_ft_msl ? `${fmt(p.altitude_ft_msl)} ft` : '—'}</td></tr><tr><th>Aircraft</th><td>${esc(p.aircraft_ref || '—')}</td></tr>
+          <tr><th>Time</th><td>${p.observation_time ? dateTime(p.observation_time / 1000, this.s.utc) : '—'}</td></tr></table>${p.raw_text ? `<pre class="bulletin">${esc(p.raw_text)}</pre>` : ''}` };
+    }
+    if (p.kind === 'airsig') {
+      const text = p.raw_text || p.cwatext || '';
+      const range = [p.base && p.base.trim() && `from ${esc(p.base)}`, (p.top && String(p.top).trim()) && `to ${esc(p.top)}`, p.max_ft_msl && `to ${fmt(p.max_ft_msl)} ft`].filter(Boolean).join(' ');
+      return { title: `${esc(p.type)}: ${esc(p.label)}`, color: p.color,
+        html: `${range ? `<p class="meta">Altitudes ${range}</p>` : ''}${p.dueto ? `<p>${esc(p.dueto)}</p>` : ''}${text ? `<pre class="bulletin">${esc(text)}</pre>` : ''}<p class="note">NOAA Aviation Weather Center.</p>` };
     }
     if (p.kind === 'trop-pt') {
       const name = pick(p, 'STORMNAME') || '';
