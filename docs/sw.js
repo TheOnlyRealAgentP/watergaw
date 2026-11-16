@@ -1,5 +1,5 @@
 // Watergaw service worker: instant app shell, offline start, cached radar files.
-const VERSION = 'watergaw-1.2.0';
+const VERSION = 'watergaw-1.2.1';
 const SHELL = `${VERSION}-shell`;
 const RADAR = 'watergaw-radar-files';
 const ASSETS = [
@@ -61,4 +61,10 @@ self.addEventListener('fetch', (e) => {
       return hit || (await net) || new Response('Offline', { status: 503 });
     })());
   }
+});
+
+// Tapping an alert brings Watergaw to the front.
+self.addEventListener('notificationclick', (e) => {
+  e.notification.close();
+  e.waitUntil(self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((list) => (list[0] ? list[0].focus() : self.clients.openWindow('./'))));
 });

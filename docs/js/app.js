@@ -6,7 +6,7 @@ import { PRODUCTS, PRODUCT, TILT_HINT, productCode, Series, SweepStore, sampleSw
 import { BUILTIN, DOMAINS, HC_CLASSES, parsePal, paletteTexture, cssGradient, colorAt, rgbCss } from './palettes.js';
 import { RadarLayer } from './radar-layer.js';
 import { buildStyle, ANCHOR_RADAR } from './style.js';
-import { Overlays, WARNING_TYPES, MRMS_LAYERS, MRMS_LEGEND, MOSAIC_LEGEND, GAUGE_COLORS, LIGHTNING_LEGEND, esc, mesoRank, hasTvs } from './overlays.js';
+import { Overlays, WARNING_TYPES, MRMS_LAYERS, MRMS_LEGEND, MOSAIC_LEGEND, GAUGE_COLORS, esc, mesoRank, hasTvs } from './overlays.js';
 import { searchPlaces, summarize, intensityWord } from './places.js';
 import * as U from './units.js';
 
@@ -22,6 +22,7 @@ const DEFAULTS = {
   site: null,
   mode: 'simple',
   forecast: true,
+  notify: false,
   places: [],
   layout: 1,
   panels: [{ p: 'REF', t: 0 }, { p: 'SRV', t: 0 }, { p: 'CC', t: 0 }, { p: 'ZDR', t: 0 }],
@@ -630,7 +631,11 @@ class App {
     } else if (this.activePanel) {
       parts.push(this.productLegend());
     }
-    if (o.lightning) parts.push(`<div class="lg"><div class="lg-title">Lightning · last 15 min</div><img class="lg-img" src="${LIGHTNING_LEGEND}" alt="Lightning strike density scale" loading="lazy"></div>`);
+    if (o.lightning) {
+      const ltg = ['#ffec78', '#ffd600', '#ff7800', '#ff0000', '#cc0066', '#ff00ff', '#4000c0', '#00c7ff', '#00ff00'];
+      parts.push(`<div class="lg"><div class="lg-title">Lightning · last 15 minutes</div><div class="lg-bar" style="background:linear-gradient(90deg, ${ltg.join(', ')})"></div>
+        <div class="lg-ends"><span>Fewer strikes</span><span>More strikes</span></div></div>`);
+    }
     if (MRMS_LAYERS[o.mrms]) {
       parts.push(stepLegend(`MRMS rainfall · ${MRMS_LAYERS[o.mrms][1]} · ${this.state.units.rain}`,
         MRMS_LEGEND.map(([v, c]) => [c, this.state.units.rain === 'mm' ? U.fmt(v * 25.4) : String(v)])));
@@ -842,6 +847,7 @@ class App {
 
   onWarnings(feats) {
     this.warnings = feats;
+    this.checkAlerts();
     const near = this.site ? feats.filter((f) => this.featureNear(f, this.site, 500)) : feats;
     const n = near.filter((f) => ['TOR', 'SVR', 'FFW', 'EWW', 'SQW'].includes(f.properties.key)).length;
     $('#alert-count').textContent = n ? String(n) : '';
@@ -897,6 +903,7 @@ class App {
       };
       this.rebuildTimeline();
       this.renderFocus();
+      this.checkAlerts();
     } catch (e) {
       console.warn('Nowcast failed:', e);
     } finally {
@@ -1033,6 +1040,71 @@ class App {
       if (un) { this.state.places.splice(+un.dataset.unsave, 1); this.save(); this.openSearch(); }
     });
     setTimeout(() => input.focus(), 50);
+  }
+
+  // ======================================================== alerts
+
+  async enableAlerts(on) {
+    if (on) {
+      if (!('Notification' in window)) { this.toast('This browser can’t show notifications.'); return false; }
+      const perm = Notification.permission === 'granted' ? 'granted' : await Notification.requestPermission();
+      if (perm !== 'granted') { this.toast('Notifications are blocked for this site. Allow them in your browser settings.'); return false; }
+    }
+    this.state.notify = on;
+    this.save();
+    if (on) { this.toast('Alerts on'); this.checkAlerts(); }
+    return true;
+  }
+
+  notifiedSet() {
+    if (!this.notified) {
+      try { this.notified = new Map(JSON.parse(localStorage.getItem('watergaw.notified') || '[]')); } catch { this.notified = new Map(); }
+    }
+    return this.notified;
+  }
+
+  async notify(key, title, body) {
+    const seen = this.notifiedSet();
+    if (seen.has(key)) return;
+    seen.set(key, Date.now());
+    const cutoff = Date.now() - 2 * 86400e3;
+    for (const [k, t] of seen) if (t < cutoff) seen.delete(k);
+    try { localStorage.setItem('watergaw.notified', JSON.stringify([...seen])); } catch { /* ignore */ }
+    this.toast(`${title}: ${body}`);
+    const opts = { body, icon: 'icons/icon-192.png', badge: 'icons/icon-192.png', tag: key };
+    try {
+      const reg = await navigator.serviceWorker?.getRegistration();
+      if (reg) await reg.showNotification(title, opts);
+      else new Notification(title, opts);
+    } catch { /* toast already shown */ }
+  }
+
+  /** Warnings and incoming rain for your location and saved places. */
+  checkAlerts() {
+    if (!this.state.notify || this.historyEnd) return;
+    const targets = [...(this.userLoc ? [{ name: 'your location', lat: this.userLoc.lat, lon: this.userLoc.lng }] : []), ...this.state.places];
+    for (const t of targets) {
+      for (const w of this.warnings || []) {
+        if (!['TOR', 'SVR', 'FFW', 'EWW', 'SQW', 'DSW', 'SMW'].includes(w.properties.key)) continue;
+        if (!pointInGeom([t.lon, t.lat], w.geometry)) continue;
+        const p = w.properties;
+        const name = p.emph === 2 && p.key === 'TOR' ? 'TORNADO EMERGENCY' : p.event;
+        this.notify(`${p.nwsId}|${t.name}`, name, `For ${t.name} until ${U.clock(Date.parse(p.expires) / 1000, this.state.utc)}`);
+      }
+    }
+    // Incoming rain (needs the current radar's nowcast).
+    const nowP = this.latestSweep('N0B');
+    if (!nowP || !this.forecast) return;
+    nowP.then((now) => {
+      for (const t of targets) {
+        const sum = summarize(t.lat, t.lon, { core: this.core, now, hc: null, utc: this.state.utc, siteId: this.site.id, warnings: [], arrivals: [],
+          forecast: this.forecast.frames.map((x) => ({ lead: x.lead, sweep: x.sweep })) });
+        if (sum.level !== 'soon') continue;
+        const first = sum.bars.slice(1).find((b) => b.v >= 20);
+        if (!first || first.t - Date.now() / 1000 > 35 * 60) continue;
+        this.notify(`rain|${t.name}|${Math.floor(Date.now() / 3 / 3600e3)}`, `Rain coming to ${t.name}`, sum.headline);
+      }
+    }, () => {});
   }
 
   // ======================================================== history
@@ -1181,8 +1253,8 @@ class App {
   }
 
   onKey(e) {
-    if (e.target.closest('input, textarea, select')) return;
     if (e.key === 'Escape') { this.closeSheet(); this.closeInspect(); return; }
+    if (e.target.closest('input, textarea, select')) return;
     if (e.metaKey || e.ctrlKey || e.altKey) return;
     const k = e.key.toLowerCase();
     if (k === ' ') { e.preventDefault(); this.togglePlay(); }
@@ -1392,6 +1464,7 @@ class App {
     const body = this.openSheet('Settings', `
       <div class="field"><span>Mode</span><div class="seg wide" id="set-mode"><button type="button" role="radio" aria-checked="${this.simple}" data-v="simple">Simple</button><button type="button" role="radio" aria-checked="${!this.simple}" data-v="pro">Pro</button></div>
         <small class="note">${this.simple ? 'Simple keeps things plain: radar, rain totals and what’s coming to your places.' : 'Pro shows every product, elevation, panel and tool.'}</small></div>
+      <label class="switch"><input type="checkbox" id="set-notify" ${s.notify ? 'checked' : ''}><span class="sw"></span><span class="lbl">Alerts for my places<small>Notifies you about warnings and rain on the way for your location and saved places while Watergaw is open.</small></span></label>
       <label class="switch"><input type="checkbox" id="set-forecast" ${s.forecast ? 'checked' : ''}><span class="sw"></span><span class="lbl">Show the next hour<small>Projects current storms forward up to 60 minutes. A forecast, not a guarantee.</small></span></label>
       ${this.simple ? '' : `<div class="field"><span>Go back in time</span><div class="row2"><input type="datetime-local" id="set-history" value="${histVal}" min="2022-02-19T00:00"><button type="button" class="btn small" data-act="back-live">Back to live</button></div>
         <small class="note">Replay any storm since February 2022 at this radar.</small></div>`}
@@ -1414,6 +1487,7 @@ class App {
       ${this.installPrompt ? '<button type="button" class="chip on" data-act="install">Install app</button>' : ''}</div>
       <p class="note">Keyboard: space play/pause · ←/→ frames · ↑/↓ elevation · 1–9 products · S smoothing · L live.</p>`, null, 'settings');
     segBind($('#set-mode', body), (v) => { this.setMode(v); this.openSettings(); });
+    $('#set-notify', body).addEventListener('change', async (e) => { if (!(await this.enableAlerts(e.target.checked))) e.target.checked = false; });
     $('#set-forecast', body).addEventListener('change', (e) => { s.forecast = e.target.checked; this.save(); this.forecast = null; this.updateNowcast(); this.rebuildTimeline(); this.renderFocus(); });
     $('#set-history', body)?.addEventListener('change', (e) => { const t = Date.parse(e.target.value); if (t) this.setHistory(t / 1000); });
     $('#set-smooth', body).addEventListener('change', (e) => { s.smooth = e.target.checked; this.save(); this.panels.forEach((p) => this.applyLayerOptions(p)); });

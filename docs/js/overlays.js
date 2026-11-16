@@ -49,7 +49,6 @@ export const MOSAIC_LEGEND = [[5, '#6376a8'], [10, '#4568a6'], [15, '#60b4d4'], 
 const EMPTY = { type: 'FeatureCollection', features: [] };
 const NOWCOAST = 'https://nowcoast.noaa.gov/geoserver/ows';
 const NHC = 'https://mapservices.weather.noaa.gov/tropical/rest/services/tropical/NHC_tropical_weather/MapServer';
-export const LIGHTNING_LEGEND = `${NOWCOAST}?service=WMS&version=1.3.0&request=GetLegendGraphic&format=image/png&layer=lightning_detection:ldn_lightning_strike_density`;
 
 // Saffir-Simpson category from max sustained wind (kt).
 export function tropicalCategory(kt, type = '') {

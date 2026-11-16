@@ -427,7 +427,7 @@ body.mode-simple .timeline .play { width: 52px; height: 52px; }
 .history-banner button { border: 0; background: rgba(0,0,0,0.2); color: inherit; border-radius: 999px; padding: 3px 10px; font-weight: 700; }
 .frame-time.fc { color: #c99bff; }
 .ticks i.fc { background: rgba(170, 110, 255, 0.55); }
-.lg-img { display: block; max-width: 100%; height: 34px; margin-top: 4px; border-radius: 4px; background: #fff; }
+.lg-ends { display: flex; justify-content: space-between; font-size: 10.5px; color: var(--muted); margin-top: 2px; }
 @media (max-width: 520px) {
   .fc-banner { top: calc(var(--top) + 92px); }
   .history-banner { top: calc(var(--top) + 126px); }
