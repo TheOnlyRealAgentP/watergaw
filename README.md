@@ -128,4 +128,9 @@ contributors. Counties: US Census Bureau.
 
 ## License
 
-MIT
+Copyright © 2026 Harrison Stewart.
+
+Watergaw is free software under the [GNU Affero General Public License v3.0 or later](LICENSE).
+You can use, study, share and modify it. If you distribute a modified version, or run one as a
+service that other people use over a network, you must release your source code under the same
+license. The name "Watergaw" and the logo aren't covered by this license.

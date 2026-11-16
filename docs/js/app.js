@@ -1794,7 +1794,7 @@ class App {
       <p class="note">A watergaw is an old Scots word for a faint, broken piece of rainbow seen in the rain, long taken as a sign that weather is on the way. Radar paints rain in rainbow colors too.</p>
       <h4>The logo</h4>
       <p class="note">It's real radar data: Hurricane Harvey coming ashore near Rockport, Texas, as seen by the Corpus Christi radar (KCRP) at 03:04 UTC on 26 August 2017, contoured in Watergaw's reflectivity colors.</p>
-      <p class="note">Version ${VERSION} · <a href="https://github.com/TheOnlyRealAgentP/watergaw" target="_blank" rel="noopener">Source code (MIT)</a></p>`, null, 'about');
+      <p class="note">Version ${VERSION} · <a href="https://github.com/TheOnlyRealAgentP/watergaw" target="_blank" rel="noopener">Source code (AGPL-3.0)</a></p>`, null, 'about');
   }
 
   showWelcome() {
