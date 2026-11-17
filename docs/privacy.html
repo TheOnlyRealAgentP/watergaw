@@ -44,7 +44,7 @@
   <header><img src="icons/icon-192.png" alt=""><a href="./">Watergaw</a></header>
 
   <h1>Watergaw collects no data about you.</h1>
-  <p class="muted">Updated 16 November 2026. This covers the Watergaw website and Watergaw apps.</p>
+  <p class="muted">Updated 17 November 2026. This covers the Watergaw website and Watergaw apps.</p>
 
   <div class="promise">
     <ul>
@@ -57,6 +57,10 @@
 
   <h2>Your location</h2>
   <p>If you let Watergaw use your location, it is used on your device to center the map, pick the nearest radar and show what's coming your way. It is never sent to us. The only time any part of it leaves your device is to fetch a forecast from the National Weather Service, rounded to about 1 km (see <a href="#forecasts">Forecasts</a>). You can turn location off at any time in your browser or phone settings, and Watergaw still works.</p>
+
+  <h2>Alerts and widgets in the app</h2>
+  <p>If you turn on warning or rain alerts, or add a Watergaw widget to your home screen, the app checks about every 30 minutes in the background. It uses where you last opened the app and your saved places, all stored on your phone. It never reads your location in the background. Each check downloads the national list of serious warnings and the newest files from the nearest radar, then works out everything else on your phone. Notifications are shown by your phone itself: there's no push service and no device ID.</p>
+  <p>Searching for towns and ZIP codes in the app works without the internet: the place list is built in, so what you type never leaves your phone.</p>
 
   <h2>Your settings and saved places</h2>
   <p>Settings, saved places and which alerts you've already seen are kept only on your device (in your browser's storage, or in the app's storage on your phone). Clearing the site's data or uninstalling the app deletes them.</p>
@@ -81,7 +85,8 @@
   <h2>Only when you ask</h2>
   <p>A few features need to send something to work. They only do it when you use them:</p>
   <ul>
-    <li><b>Search for a place:</b> the words you type go to Photon by komoot (OpenStreetMap data), with OpenStreetMap Nominatim as a backup.</li>
+    <li><b>Search for a place (website):</b> the words you type go to Photon by komoot (OpenStreetMap data), with OpenStreetMap Nominatim as a backup.</li>
+    <li><b>Turn on Flights (app):</b> the rough area of the map you're looking at, rounded to about 25 km, goes to adsb.lol to find the planes there.</li>
     <li><b>Plan a drive:</b> the start and end of the trip go to the OSRM route server (OpenStreetMap data). Forecasts along the way come from the National Weather Service, rounded the same way as above.</li>
   </ul>
   <p>Place names you see when you tap the map ("12 mi NW of Waco") are worked out on your device from the map that's already loaded, so tapping sends nothing.</p>
