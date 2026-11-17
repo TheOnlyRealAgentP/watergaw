@@ -15,7 +15,7 @@ import { sampleNear } from './places.js';
 import * as U from './units.js';
 import { rings, pointInGeom } from './geo.js';
 
-const VERSION = '1.9.1';
+const VERSION = '1.9.2';
 const FORECAST_LEADS = [10, 20, 30, 40, 50, 60].map((m) => m * 60);
 // Level II moment behind each product that has one.
 const L2_MOMENT = { REF: 'REF', VEL: 'VEL', SRV: 'VEL', ZDR: 'ZDR', CC: 'RHO' };
@@ -32,7 +32,9 @@ const DEFAULTS = {
   forecast: true,
   notify: false,
   largeText: false,
-  cardCollapsed: false,
+  // The "now" card: null picks for you (small on short screens unless there's
+  // a warning or heavy rain), 'big' or 'small' once you've chosen.
+  cardSize: null,
   promptDismissed: false,
   tipShown: false,
   places: [],
@@ -128,6 +130,7 @@ class App {
           if (v && typeof v === 'object' && !Array.isArray(v) && s[k] && typeof s[k] === 'object' && !Array.isArray(s[k])) s[k] = { ...s[k], ...v };
           else if (k in s) s[k] = v;
         }
+        if (saved.cardCollapsed === true && !saved.cardSize) s.cardSize = 'small';
       }
     } catch { /* private mode or bad data: defaults */ }
     // URL: #s=KTLX&p=REF.0,SRV.0&l=2&v=8.20/35.33/-97.28
@@ -511,7 +514,7 @@ class App {
     const lead = hasFc ? Math.round(fr[fr.length - 1].lead / 60) : 0;
     const span = (m) => (m >= 90 || m % 60 === 0 ? `${Math.round(m / 60)} h` : `${m} min`);
     // Long labels when there's room, short ones on narrow screens, none if even those don't fit.
-    const w = el.clientWidth || 0, cw = 6;
+    const w = el.clientWidth || 0, cw = (parseFloat(getComputedStyle(el).fontSize) || 10.5) * 0.58;
     let left = `${span(ago)} ago`, right = hasFc ? `+${span(lead)}` : 'Now';
     if ((left.length + right.length) * cw + 12 > w) {
       left = `−${span(ago).replace(' ', '')}`;
@@ -1128,9 +1131,11 @@ class App {
       return `<span class="bar ${b.fc ? 'fc' : ''}" title="${b.v >= 20 ? intensityWord(b.v) : 'Dry'}"><i style="height:${h}%;background:${c}"></i><small>${b.label}</small></span>`;
     }).join('');
     card.hidden = false;
-    card.className = `now lvl-${sum.level}${this.state.cardCollapsed ? ' collapsed' : ''}`;
-    if (this.state.cardCollapsed) {
-      card.innerHTML = `<button class="now-mini" data-act="toggle-card" aria-label="Show details for ${esc(f.name)}">${f.me ? ICON.locate : ICON.pin}<b>${esc(f.name)}</b><span>${esc(sum.headline)}</span>${ICON.up}</button>`;
+    const small = this.state.cardSize ? this.state.cardSize === 'small' : innerHeight < 620 && !['danger', 'warn'].includes(sum.level);
+    this.cardSmall = small;
+    card.className = `now lvl-${sum.level}${small ? ' collapsed' : ''}`;
+    if (small) {
+      card.innerHTML = `<button class="now-mini" data-act="toggle-card" aria-label="Show details for ${esc(f.name)}">${f.me ? ICON.locate : ICON.pin}<span class="nm"><b>${esc(f.name)}</b><span>${esc(sum.headline)}</span></span>${ICON.up}</button>`;
       return;
     }
     const allDry = sum.bars.every((b) => !(b.v >= 15));
@@ -1578,8 +1583,13 @@ class App {
     this.renderTimelineLabels();
     if (!this.resizeBound) {
       this.resizeBound = true;
-      let t;
-      window.addEventListener('resize', () => { clearTimeout(t); t = setTimeout(() => this.renderTimelineLabels(), 150); });
+      // The slider's width depends on the screen, the mode and the text size.
+      let t, w = 0;
+      new ResizeObserver(([e]) => {
+        if (Math.round(e.contentRect.width) === w) return;
+        w = Math.round(e.contentRect.width);
+        clearTimeout(t); t = setTimeout(() => this.renderTimelineLabels(), 100);
+      }).observe($('#tl-labels'));
     }
   }
 
@@ -1676,6 +1686,17 @@ class App {
     document.documentElement.dataset.basemap = this.state.basemap;
     const dock = $('.dock');
     new ResizeObserver(() => document.documentElement.style.setProperty('--dock-h', `${dock.offsetHeight}px`)).observe(dock);
+    // Toasts and the map credits sit above whichever card is open at the bottom.
+    const cards = [$('#now'), $('#inspect')];
+    const cardH = new ResizeObserver(() => document.documentElement.style.setProperty('--card-h', `${Math.ceil(Math.max(...cards.map((c) => c.getBoundingClientRect().height)))}px`));
+    cards.forEach((c) => cardH.observe(c));
+    // Turning the phone can change whether the card starts small.
+    let short = innerHeight < 620;
+    addEventListener('resize', () => {
+      if ((innerHeight < 620) === short) return;
+      short = !short;
+      if (!this.state.cardSize) this.renderFocus();
+    });
     $('#btn-site').addEventListener('click', () => this.openSites());
     $('#btn-search').addEventListener('click', () => this.openSearch());
     segBind($('#src-seg'), (v) => this.setSource(v));
@@ -1733,7 +1754,7 @@ class App {
       case 'search': $('#welcome')?.remove(); return this.openSearch();
       case 'xs-new': this.closeSheet(); return this.startXsect();
       case 'save-place': return this.toggleSave();
-      case 'toggle-card': this.state.cardCollapsed = !this.state.cardCollapsed; this.save(); return this.renderFocus();
+      case 'toggle-card': this.state.cardSize = this.cardSmall ? 'big' : 'small'; this.save(); return this.renderFocus();
       case 'dismiss-prompt': this.state.promptDismissed = true; this.save(); return this.renderFocus();
       case 'help': return this.openHelp();
       case 'save-spot': return this.saveSpot();

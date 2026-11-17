@@ -176,7 +176,7 @@ function linePath(vals, x, y) {
 }
 
 export function charts(f, units, utc, hours = 48) {
-  const W = 340, L = 30, R = 6;
+  const W = 340, L = 34, R = 6;
   const out = [];
   // Temperature
   {

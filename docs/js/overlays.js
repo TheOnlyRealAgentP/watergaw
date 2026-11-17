@@ -3,7 +3,7 @@
 // rainfall and satellite rasters, the national mosaic, range rings and radar
 // sites. Data is fetched once and pushed into every panel's map.
 
-import { ANCHOR_OVERLAY, ANCHOR_RADAR } from './style.js';
+import { ANCHOR_OVERLAY, ANCHOR_RADAR, labelSize } from './style.js';
 import { compass, fmt, fmtU, knotsTo, distance, rain, height, dateTime } from './units.js';
 
 const NWS = 'https://api.weather.gov';
@@ -155,7 +155,7 @@ export class Overlays {
   install(map) {
     this.maps.add(map);
     this.flameIcon(map);
-    const add = (id, layer, before) => { if (!map.getLayer(id)) map.addLayer({ id, ...layer }, before && map.getLayer(before) ? before : undefined); };
+    const add = (id, layer, before) => { if (!map.getLayer(id)) map.addLayer({ id, ...layer, ...(layer.layout && { layout: labelSize(layer.layout) }) }, before && map.getLayer(before) ? before : undefined); };
     const src = (id, def) => { if (!map.getSource(id)) map.addSource(id, def); };
     for (const name of ['spc', 'watch', 'mcd', 'warn', 'rings', 'storms', 'tracks', 'lsr', 'gauges', 'sites', 'trop-outlook', 'trop-cone', 'trop-ww', 'trop-line', 'trop-pts', 'xs', 'quakes', 'fires', 'perims', 'metar', 'airsig', 'pirep', 'route']) {
       src(`ov-${name}`, { type: 'geojson', data: this.data[name] || EMPTY });

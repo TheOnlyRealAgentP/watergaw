@@ -9,6 +9,20 @@ const ESRI = 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery
 export const ANCHOR_RADAR = 'road-minor';
 export const ANCHOR_OVERLAY = 'label-place-other';
 
+/** Phones and tablets are read at arm's length: place names a little bigger. */
+const LABEL = globalThis.matchMedia?.('(pointer: coarse)').matches ? 1.15 : 1;
+const px = (n) => Math.round(n * LABEL * 10) / 10;
+
+/** A layer's layout with its text-size (a number or a zoom ramp) scaled like the place names. */
+export function labelSize(layout) {
+  const t = layout?.['text-size'];
+  if (LABEL === 1 || t == null) return layout;
+  const size = typeof t === 'number' ? px(t)
+    : Array.isArray(t) && t[0] === 'interpolate' ? [...t.slice(0, 3), ...t.slice(3).map((v, i) => (i % 2 ? px(v) : v))]
+    : t;
+  return { ...layout, 'text-size': size };
+}
+
 const THEMES = {
   dark: {
     bg: '#0b0e13', water: '#101b27', land: '#10141a', park: '#111a16', waterway: '#16283a',
@@ -66,16 +80,16 @@ export function buildStyle(theme = 'dark') {
       paint: { 'line-color': t.country, 'line-width': ['interpolate', ['linear'], ['zoom'], 3, 1, 10, 2.5] } },
     { id: ANCHOR_OVERLAY, type: 'symbol', source: 'omt', 'source-layer': 'place', minzoom: 8.5,
       filter: ['in', ['get', 'class'], ['literal', ['town', 'village']]],
-      layout: { 'text-field': NAME, 'text-font': ['Noto Sans Regular'], 'text-size': ['interpolate', ['linear'], ['zoom'], 9, 11, 14, 14], 'text-max-width': 8 },
+      layout: { 'text-field': NAME, 'text-font': ['Noto Sans Regular'], 'text-size': ['interpolate', ['linear'], ['zoom'], 9, px(11), 14, px(14)], 'text-max-width': 8 },
       paint: { 'text-color': t.textMinor, 'text-halo-color': t.halo, 'text-halo-width': 1.4 } },
     { id: 'label-city', type: 'symbol', source: 'omt', 'source-layer': 'place', minzoom: 4.5,
       filter: ['==', ['get', 'class'], 'city'],
-      layout: { 'text-field': NAME, 'text-font': ['Noto Sans Bold'], 'text-size': ['interpolate', ['linear'], ['zoom'], 5, 11, 12, 16], 'text-max-width': 8,
+      layout: { 'text-field': NAME, 'text-font': ['Noto Sans Bold'], 'text-size': ['interpolate', ['linear'], ['zoom'], 5, px(11), 12, px(16)], 'text-max-width': 8,
         'symbol-sort-key': ['get', 'rank'] },
       paint: { 'text-color': t.text, 'text-halo-color': t.halo, 'text-halo-width': 1.6 } },
     { id: 'label-state', type: 'symbol', source: 'omt', 'source-layer': 'place', minzoom: 3, maxzoom: 6.5,
       filter: ['==', ['get', 'class'], 'state'],
-      layout: { 'text-field': NAME, 'text-font': ['Noto Sans Regular'], 'text-size': 11, 'text-transform': 'uppercase', 'text-letter-spacing': 0.12 },
+      layout: { 'text-field': NAME, 'text-font': ['Noto Sans Regular'], 'text-size': px(11), 'text-transform': 'uppercase', 'text-letter-spacing': 0.12 },
       paint: { 'text-color': t.textMinor, 'text-halo-color': t.halo, 'text-halo-width': 1.2, 'text-opacity': 0.8 } },
   );
   sources.counties = { type: 'geojson', data: 'data/counties.geojson', attribution: 'Counties: US Census Bureau' };

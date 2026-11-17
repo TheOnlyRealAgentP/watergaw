@@ -1,5 +1,5 @@
 // Watergaw service worker: instant app shell, offline start, cached radar files.
-const VERSION = 'watergaw-1.9.1';
+const VERSION = 'watergaw-1.9.2';
 const SHELL = `${VERSION}-shell`;
 const RADAR = 'watergaw-radar-files';
 const ASSETS = [

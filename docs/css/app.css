@@ -34,6 +34,7 @@ html[data-basemap="light"] {
 
 * { box-sizing: border-box; }
 html, body { height: 100%; margin: 0; }
+html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
 body {
   background: var(--bg);
   color: var(--text);
@@ -246,7 +247,7 @@ code { font: 12px ui-monospace, SFMono-Regular, Menlo, monospace; background: va
 /* ---------------------------------------------------------------- sheet */
 .scrim { position: fixed; inset: 0; z-index: 30; background: rgba(0, 0, 0, 0.35); }
 .sheet {
-  position: fixed; z-index: 31; left: 0; right: 0; bottom: 0; max-height: 80vh;
+  position: fixed; z-index: 31; left: 0; right: 0; bottom: 0; max-height: 80vh; max-height: 80dvh;
   background: var(--glass-strong); border: 1px solid var(--line); border-bottom: 0;
   border-radius: 18px 18px 0 0; box-shadow: var(--shadow);
   display: flex; flex-direction: column; animation: up 0.18s ease-out;
@@ -343,7 +344,7 @@ code { font: 12px ui-monospace, SFMono-Regular, Menlo, monospace; background: va
 .pin { width: 16px; height: 16px; border-radius: 50%; border: 2px solid #fff; background: rgba(61,139,255,0.35); box-shadow: 0 0 0 1px rgba(0,0,0,0.6); }
 .me { width: 16px; height: 16px; border-radius: 50%; background: var(--accent); border: 3px solid #fff; box-shadow: 0 0 0 6px rgba(61,139,255,0.25), 0 1px 4px rgba(0,0,0,0.5); }
 .toast {
-  position: fixed; z-index: 40; left: 50%; transform: translateX(-50%); bottom: calc(var(--dock-h) + 14px);
+  position: fixed; z-index: 40; left: 50%; transform: translateX(-50%); bottom: calc(var(--dock-h) + var(--card-h, 0px) + 14px);
   background: var(--glass-strong); border: 1px solid var(--line); border-radius: 10px; padding: 9px 14px; max-width: calc(100% - 32px);
   box-shadow: var(--shadow); font-size: 13px;
 }
@@ -466,9 +467,9 @@ body.src-all #product-strip, body.src-all #tilts, body.src-all .prod-chip { disp
 .fc-alert summary span { color: var(--muted); font-size: 11.5px; }
 .days { display: flex; flex-direction: column; margin-top: 6px; }
 .day-row { border-top: 1px solid var(--line); }
-.day-row summary { display: grid; grid-template-columns: 74px 26px 34px 34px 1fr 34px; align-items: center; gap: 6px; padding: 8px 0; cursor: pointer; list-style: none; font-variant-numeric: tabular-nums; }
+.day-row summary { display: grid; grid-template-columns: 6.2em 26px 34px 34px 1fr 2.6em; align-items: center; gap: 6px; padding: 8px 0; cursor: pointer; list-style: none; font-variant-numeric: tabular-nums; }
 .day-row summary::-webkit-details-marker { display: none; }
-.day-row .dn { font-weight: 600; font-size: 13.5px; }
+.day-row .dn { font-weight: 600; font-size: 13.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .day-row .de { font-size: 18px; }
 .day-row .dp { color: #64b5ff; font-size: 11.5px; font-weight: 600; }
 .day-row .dl { color: var(--muted); text-align: right; }
@@ -506,8 +507,9 @@ body.src-all #product-strip, body.src-all #tilts, body.src-all .prod-chip { disp
 .now .chev { width: 16px; height: 16px; color: var(--muted); }
 .now.collapsed { padding: 8px 12px; }
 .now-mini { width: 100%; }
-.now-mini b { color: var(--text); font-size: 14px; flex: none; }
-.now-mini span { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-weight: 600; color: var(--text); }
+.now-mini .nm { flex: 1; min-width: 0; display: flex; align-items: baseline; gap: 8px; }
+.now-mini .nm b { color: var(--text); font-size: 14px; flex: none; }
+.now-mini .nm span { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-weight: 600; color: var(--text); }
 .inspect .now-btns { flex-wrap: wrap; }
 .inspect .now-btns .btn { white-space: nowrap; }
 .ins-place { font-size: 12.5px; color: var(--muted); min-height: 16px; padding-right: 30px; }
@@ -525,4 +527,99 @@ html.large-text .fabs { top: calc((var(--top) + 54px) / 1.15); }
 @media (max-width: 520px) {
   .fc-banner { top: calc(var(--top) + 92px); }
   .history-banner { top: calc(var(--top) + 126px); }
+}
+
+/* ---------------------------------------------------------------- phones
+   Phones are read at arm's length, often outdoors: the small print gets
+   bigger, paragraphs get room to breathe, and nothing that explains the map
+   sits on busy radar or hides behind a card. Desktop sizes are unchanged. */
+@media (max-width: 600px), (max-height: 500px) {
+  body { font-size: 15px; }
+  .status, .panel-tag, .lg-title { font-size: 13px; }
+  .lg-ticks { height: 16px; font-size: 12px; }
+  .lg-steps span, .lg-ends, .bar small { font-size: 12px; }
+  .tl-labels { height: 15px; font-size: 12px; }
+  .lg-classes span, .lg-mini, .chip-x, .tag, .hydro-key, .fc-h span, .prod span, .day-row .dp { font-size: 12.5px; }
+  .seg button, body.mode-simple .strip button { font-size: 14px; }
+  .strip button { font-size: 13px; }
+  .frame-time { font-size: 14px; }
+  .live { font-size: 12px; }
+
+  .now-head, .now-name, .now-mini { font-size: 14px; }
+  .now-head b, .now-name b { font-size: 15px; }
+  /* Small card: place on one line, the whole headline under it. */
+  .now-mini .nm { flex-direction: column; align-items: flex-start; gap: 1px; }
+  .now-mini .nm b { font-size: 13px; color: var(--muted); font-weight: 600; }
+  .now-mini .nm span { white-space: normal; font-size: 16px; line-height: 1.3; }
+  .now-headline { font-size: 18px; }
+  .now-fc, .now-sub { font-size: 15px; }
+  .now-line, .btn.small, .chips .chip { font-size: 14px; }
+  .ins-place { font-size: 14px; }
+  .ins-main { font-size: 19px; }
+  .inspect .vals b { width: 40px; font-size: 12.5px; }
+  .inspect .sub { font-size: 13.5px; }
+  .arr, .fc-banner, .history-banner { font-size: 14px; }
+  .toast { font-size: 14.5px; line-height: 1.4; }
+
+  .sheet-head h3 { font-size: 18px; }
+  .sheet-body p { line-height: 1.5; }
+  .sheet-body h4 { font-size: 13px; }
+  .note, .meta { font-size: 14px; line-height: 1.5; }
+  .switch small { font-size: 13.5px; line-height: 1.4; }
+  .row, .area, .kv, .about-prod, .day-row p, .alert-row span, .fc-alert summary, .fc-h,
+  .prod b, .stop .st-t, .stop .st-p { font-size: 14px; }
+  .alert-row small, .site-row small, .site-row span small, .stop small, .fc-alert summary span,
+  .row2 label, .drive-field label, .pal-name { font-size: 13px; }
+  .fc-sum, .bulletin { font-size: 13.5px; }
+  .day-row .dn { font-size: 15px; }
+  .help-row b, .drive-sum { font-size: 16px; }
+  .help-row p { font-size: 14.5px; }
+  .fcsvg text, .hydro text { font-size: 11px; }
+  .fcsvg .ann { font-size: 12px; }
+  /* Under 16px, iPhones zoom the whole page when you tap into a box. */
+  input:not([type]), input[type="text"], input[type="search"], input[type="number"], input[type="time"], select { font-size: 16px; }
+  /* Solid behind the color key so it never sits on radar. */
+  .dock { padding-top: 14px; background: linear-gradient(to top, var(--glass-strong) calc(100% - 12px), transparent); }
+}
+/* The card spans the screen here, so lift the map credits above it. */
+@media (max-width: 600px) {
+  .maplibregl-ctrl-bottom-right { bottom: calc(var(--dock-h) + var(--card-h, 0px) + 6px); }
+}
+/* Simple mode on narrow phones: drop the step buttons so the time slider is
+   wide enough to drag and to label ("2 h ago … Now … +1 h"). */
+@media (max-width: 480px) {
+  body.mode-simple #btn-prev, body.mode-simple #btn-next { display: none; }
+}
+/* Thumb-sized targets wherever the pointer is a finger. */
+@media (pointer: coarse) {
+  .icon-btn.tiny { width: 40px; height: 40px; }
+  .icon-btn.small { width: 40px; height: 44px; }
+  .btn.small { height: 38px; padding: 0 12px; }
+  .chips .chip { height: 38px; }
+  .live { height: 38px; padding: 0 10px; }
+  .seg button { min-height: 38px; }
+  .strip button, body.mode-simple .strip button { height: 38px; }
+  .tilts button { min-height: 36px; }
+  .inspect .close, .welcome .close { top: 2px; right: 2px; width: 42px; height: 42px; }
+  .linkish { padding: 8px 0; }
+  .menu button { padding: 12px; }
+  .site-row { padding: 12px 8px; }
+  .day-row summary, .fc-alert summary { min-height: 44px; }
+  .history-banner button { padding: 8px 12px; }
+}
+/* Landscape phones are short: color key and radar choice share a row and
+   the time slider gets the full width below, so the map keeps the screen. */
+@media (max-height: 500px) and (orientation: landscape) {
+  .dock {
+    display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 6fr); column-gap: 16px; row-gap: 2px; align-items: end;
+    padding-top: 10px;
+  }
+  .dock > * { max-width: none; margin: 0; }
+  .prod-row { flex-wrap: nowrap; overflow-x: auto; }
+  .tilts { width: auto; flex: none; }
+  .tilts button { flex: none; min-width: 44px; padding: 6px 10px; }
+  .timeline { grid-column: 1 / -1; }
+}
+@media (max-height: 500px) and (orientation: landscape) and (min-width: 760px) {
+  .sheet { max-height: calc(100vh - var(--top) - 10px); max-height: calc(100dvh - var(--top) - 10px); }
 }
