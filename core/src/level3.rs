@@ -106,6 +106,8 @@ fn spec(code: i16) -> Option<Spec> {
         Some(Spec { name, units, gate_km, range_km, has_elevation, has_delta_time })
     };
     match code {
+        // Lowest unblocked beam per bin: what rain gauges see, used for rainfall estimates.
+        32 => s("Hybrid Scan Reflectivity", "dBZ", 1.0, false, false),
         94 => s("Base Reflectivity", "dBZ", 1.0, true, false),
         99 => s("Base Velocity", "m/s", 0.25, true, false),
         134 => s("Digital VIL", "kg/m²", 1.0, false, false),
@@ -235,7 +237,7 @@ fn build_lut(h: &Header) -> ([f32; 256], [u8; 256], Kind) {
     let mut kind = Kind::Continuous;
     match h.product_code {
         // Digital reflectivity / velocity: min*10, increment*10, number of levels.
-        94 | 99 | 153 | 154 => {
+        32 | 94 | 99 | 153 | 154 => {
             let min = t[0] as f64 * 0.1;
             let inc = t[1] as f64 * 0.1;
             let levels = (t[2] as i32).clamp(0, 254) as usize;

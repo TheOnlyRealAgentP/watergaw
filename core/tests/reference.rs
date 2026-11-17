@@ -47,7 +47,7 @@ fn level3_matches_metpy() {
         // Radials are padded to whole halfwords, so MetPy may count one extra (empty) gate.
         let ref_bins = reference["nbins"].as_i64().unwrap();
         assert!(s.gates as i64 == ref_bins || s.gates as i64 + 1 == ref_bins && s.gates % 2 == 1, "{name} gates");
-        assert_eq!(s.header.awips_site, "HGX");
+        assert_eq!(s.header.awips_site, name[..3], "{name} radar id");
 
         // Every radial: angles, number of valid gates and their sum.
         let radials = reference["radials"].as_array().unwrap();

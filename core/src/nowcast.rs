@@ -103,6 +103,36 @@ pub fn to_grid(p: &Polar, cell: f64, floor: f32) -> Grid {
     Grid { n, cell, half, data }
 }
 
+impl Grid {
+    /// Value of the cell under (x, y) km; NaN outside the radar's circle.
+    pub fn at(&self, x: f64, y: f64) -> f32 {
+        if x * x + y * y > self.half * self.half {
+            return f32::NAN;
+        }
+        let i = ((x + self.half) / self.cell).floor();
+        let j = ((y + self.half) / self.cell).floor();
+        if i < 0.0 || j < 0.0 || i >= self.n as f64 || j >= self.n as f64 {
+            return f32::NAN;
+        }
+        self.data[j as usize * self.n + i as usize]
+    }
+}
+
+/// What a point will see over the next hour: the value arriving at (x, y) km
+/// after each `taus` seconds, by tracing the motion field back upwind (the
+/// same two-step backtrack [`advect`] uses). NaN once the source is outside
+/// the radar's view.
+pub fn point_series(cur: &Grid, m: &Motion, x: f64, y: f64, taus: &[f64]) -> Vec<f32> {
+    taus.iter()
+        .map(|&tau| {
+            let (u1, v1) = m.sample(x, y);
+            let (mx, my) = (x - u1 * tau / 2.0, y - v1 * tau / 2.0);
+            let (u2, v2) = m.sample(mx, my);
+            cur.at(x - u2 * tau, y - v2 * tau)
+        })
+        .collect()
+}
+
 /// Motion vectors (km/s east and north) on a coarse grid of block centres.
 pub struct Motion {
     pub nb: usize,
