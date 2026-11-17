@@ -6,6 +6,7 @@
 // the next hour) the radar nowcast.
 
 import * as U from './units.js';
+import { coarse } from './forecast.js';
 
 const OSRM = 'https://router.project-osrm.org/route/v1/driving';
 const NWS = 'https://api.weather.gov';
@@ -27,7 +28,7 @@ export async function loadHourly(lat, lon) {
   const key = `${lat.toFixed(2)},${lon.toFixed(2)}`;
   const hit = hourlyCache.get(key);
   if (hit && Date.now() - hit.t < 30 * 60e3) return hit.v;
-  const pt = (await getJSON(`${NWS}/points/${lat.toFixed(4)},${lon.toFixed(4)}`)).properties;
+  const pt = (await getJSON(`${NWS}/points/${coarse(lat, lon)}`)).properties;
   const g = (await getJSON(pt.forecastGridData)).properties;
   const series = (s, amount = false) => (s?.values || []).map((v) => {
     const [start, dur] = v.validTime.split('/');

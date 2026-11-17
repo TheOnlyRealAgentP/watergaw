@@ -6,9 +6,13 @@
 // so upcoming weather events read at a glance.
 
 import * as U from './units.js';
+import { pointInGeom } from './geo.js';
 
 const NWS = 'https://api.weather.gov';
 const cache = new Map();
+
+/** Spots are sent to NWS at about 1 km (2 decimals): enough for its 2.5 km grid, not a house. */
+export const coarse = (lat, lon) => `${lat.toFixed(2)},${lon.toFixed(2)}`;
 
 async function getJSON(url) {
   const res = await fetch(url, { headers: { Accept: 'application/geo+json' } });
@@ -40,15 +44,35 @@ function hourly(series, t0, n, amount = false) {
   return out;
 }
 
+/**
+ * Active alerts at a spot without sending the exact spot: fetch the alerts for its
+ * forecast zone, county and fire-weather zone, then keep those whose shape (when
+ * they have one) covers the point. That's the same rule as NWS's own ?point= query.
+ */
+async function alertsAt(lat, lon, zones) {
+  const lists = await Promise.all(zones.map((z) => getJSON(`${NWS}/alerts/active/zone/${z}`).catch(() => ({ features: [] }))));
+  const seen = new Set();
+  const out = [];
+  for (const f of lists.flatMap((d) => d.features || [])) {
+    const p = f.properties || {};
+    if (seen.has(p.id)) continue;
+    seen.add(p.id);
+    if (f.geometry && !pointInGeom([lon, lat], f.geometry)) continue;
+    out.push(p);
+  }
+  return out.sort((a, b) => String(b.sent).localeCompare(String(a.sent)));
+}
+
 export async function loadForecast(lat, lon) {
   const key = `${lat.toFixed(3)},${lon.toFixed(3)}`;
   const hit = cache.get(key);
   if (hit && Date.now() - hit.at < 15 * 60e3) return hit.data;
-  const pt = (await getJSON(`${NWS}/points/${lat.toFixed(4)},${lon.toFixed(4)}`)).properties;
+  const pt = (await getJSON(`${NWS}/points/${coarse(lat, lon)}`)).properties;
+  const zones = [pt.forecastZone, pt.county, pt.fireWeatherZone].filter(Boolean).map((u) => u.split('/').pop());
   const [grid, periods, alerts] = await Promise.all([
     getJSON(pt.forecastGridData),
     getJSON(pt.forecast),
-    getJSON(`${NWS}/alerts/active?point=${lat.toFixed(4)},${lon.toFixed(4)}`).catch(() => ({ features: [] })),
+    alertsAt(lat, lon, zones),
   ]);
   const g = grid.properties;
   const n = 7 * 24;
@@ -68,7 +92,7 @@ export async function loadForecast(lat, lon) {
     dir: hourly(g.windDirection, t0, n),
     sky: hourly(g.skyCover, t0, n),
     periods: periods.properties.periods || [],
-    alerts: (alerts.features || []).map((f) => f.properties),
+    alerts,
   };
   cache.set(key, { at: Date.now(), data });
   return data;

@@ -7,14 +7,15 @@ import { BUILTIN, DOMAINS, HC_CLASSES, parsePal, paletteTexture, cssGradient, co
 import { RadarLayer } from './radar-layer.js';
 import { buildStyle, ANCHOR_RADAR } from './style.js';
 import { Overlays, WARNING_TYPES, MRMS_LAYERS, MRMS_LEGEND, MOSAIC_LEGEND, GAUGE_COLORS, TRACKS, TRACK_WINDOWS, FAA_CHARTS, esc, mesoRank, hasTvs } from './overlays.js';
-import { searchPlaces, summarize, intensityWord, reverseName } from './places.js';
+import { searchPlaces, summarize, intensityWord, placeNear } from './places.js';
 import { loadForecast, charts, days, alertChips, summaryLine, emoji, tempOf } from './forecast.js';
 import { WindField, WindAnimation, WIND_STOPS } from './wind.js';
 import { planDrive, routeGeoJSON, describe as describeStop, driveChart, LEVEL_COLOR } from './route.js';
 import { sampleNear } from './places.js';
 import * as U from './units.js';
+import { rings, pointInGeom } from './geo.js';
 
-const VERSION = '1.9.0';
+const VERSION = '1.9.1';
 const FORECAST_LEADS = [10, 20, 30, 40, 50, 60].map((m) => m * 60);
 // Level II moment behind each product that has one.
 const L2_MOMENT = { REF: 'REF', VEL: 'VEL', SRV: 'VEL', ZDR: 'ZDR', CC: 'RHO' };
@@ -984,12 +985,11 @@ class App {
     card.hidden = false;
     this.placePin(lngLat);
     const point = this.inspectPoint;
-    reverseName(lngLat.lat, lngLat.lng).then((name) => {
-      if (this.inspectPoint !== point) return;
-      if (name) point.name = name;
-      const el = $('#ins-place');
-      if (el) el.textContent = name ? `Near ${name}` : '';
-    });
+    const place = placeNear(map, lngLat.lat, lngLat.lng, u.distance);
+    if (place) {
+      point.name = place.near ? place.name : place.text;
+      $('#ins-place').textContent = place.text;
+    }
   }
 
   saveSpot() {
@@ -2173,6 +2173,8 @@ class App {
       </ul>
       <h4>Data</h4>
       <p class="note">NEXRAD Level II and III and MRMS from the NOAA Open Data Dissemination program (AWS, Unidata). Lightning: NOAA nowCOAST (NLDN/GLD360). Hurricanes: National Hurricane Center. Forecasts: National Weather Service. Earthquakes: USGS. Wildfires: NIFC. Aviation: NOAA Aviation Weather Center. Wind: NOAA GFS via Watergaw Wind. Routes: OSRM / OpenStreetMap. Flight charts: FAA. Place search: OpenStreetMap (Photon). Warnings: National Weather Service API. Watches, mesoscale discussions, storm attributes, storm reports, the national mosaic and MRMS rainfall tiles: Iowa Environmental Mesonet. Outlooks: Storm Prediction Center. River gauges and forecasts: National Water Prediction Service. Satellite: NASA GIBS. Basemap: OpenFreeMap / OpenStreetMap. Counties: US Census Bureau.</p>
+      <h4>Your privacy</h4>
+      <p class="note">Watergaw collects nothing about you: no accounts, ads, analytics, cookies or tracking, and no servers of ours. Your location and saved places stay on your device. <a href="privacy.html" target="_blank" rel="noopener">Read the privacy page</a></p>
       <h4>Please note</h4>
       <p class="note">Watergaw is an independent project, not affiliated with NOAA or the National Weather Service. Data can be delayed or missing. Don't rely on it alone for life-safety decisions: follow official NWS warnings and local emergency officials.</p>
       <h4>Why “Watergaw”?</h4>
@@ -2259,31 +2261,6 @@ function segBind(el, fn) {
     $$('button', el).forEach((x) => x.setAttribute('aria-checked', String(x === b)));
     fn(b.dataset.v);
   });
-}
-
-function rings(g) {
-  if (!g) return [];
-  if (g.type === 'Polygon') return [g.coordinates];
-  if (g.type === 'MultiPolygon') return g.coordinates;
-  return [];
-}
-
-function pointInGeom(pt, g) {
-  for (const poly of rings(g)) {
-    let inside = false;
-    for (let r = 0; r < poly.length; r++) {
-      const ring = poly[r];
-      let c = false;
-      for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
-        const [xi, yi] = ring[i], [xj, yj] = ring[j];
-        if ((yi > pt[1]) !== (yj > pt[1]) && pt[0] < ((xj - xi) * (pt[1] - yi)) / (yj - yi) + xi) c = !c;
-      }
-      if (r === 0) inside = c;
-      else if (c) inside = false;
-    }
-    if (inside) return true;
-  }
-  return false;
 }
 
 function bbox(g) {

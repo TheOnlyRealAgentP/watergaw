@@ -125,6 +125,16 @@ archive and rebuilds every icon. It contours the storm into Watergaw's reflectiv
 colors, tapers the outer rain bands into spiral arms, and magnifies the eye slightly
 so it stays visible at launcher-icon sizes.
 
+## Privacy
+
+Watergaw collects no data: no accounts, ads, analytics, cookies or tracking, and no servers of its own.
+Location, settings and saved places stay in the browser. Fonts and MapLibre are served from this
+site rather than a CDN. Place names on tap come from the loaded map tiles, alerts for saved places
+are matched on the device against the national list, and the only location-based requests (NWS
+forecasts) are rounded to 0.01° (about 1 km). The plain-language policy is
+[watergawradar.com/privacy.html](https://watergawradar.com/privacy.html); keep it in step with the
+code when adding a data source.
+
 ## Data sources
 
 NEXRAD Level II and III and MRMS: NOAA Open Data Dissemination (AWS, Unidata). Lightning: NOAA

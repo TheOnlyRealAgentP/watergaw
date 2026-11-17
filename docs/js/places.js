@@ -31,18 +31,38 @@ export async function searchPlaces(q, near) {
   }
 }
 
-/** "Springville, Utah" style name for a point (OpenStreetMap via Photon), or ''. */
-export async function reverseName(lat, lon) {
+const PLACE_CLASSES = new Set(['city', 'town', 'village', 'hamlet']);
+const DIRS = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
+
+/**
+ * Plain name for a point, read from the map tiles already on screen (OpenStreetMap
+ * places), so nothing about the point leaves the device. Returns
+ * { name: 'Waco', text: 'Near Waco' | '12 mi NW of Waco', near } or null.
+ */
+export function placeNear(map, lat, lon, distUnit = 'mi') {
+  let feats;
   try {
-    const res = await fetch(`https://photon.komoot.io/reverse?lat=${lat.toFixed(5)}&lon=${lon.toFixed(5)}&lang=en`);
-    const d = await res.json();
-    const p = d.features?.[0]?.properties;
-    if (!p) return '';
-    const town = p.city || p.town || p.village || p.name || p.county || '';
-    return [town, p.state].filter(Boolean).join(', ');
+    feats = map.querySourceFeatures('omt', { sourceLayer: 'place' });
   } catch {
-    return '';
+    return null;
   }
+  const kx = Math.cos(lat * Math.PI / 180) * 111.32;
+  let best = null;
+  for (const f of feats) {
+    const p = f.properties || {};
+    if (!PLACE_CLASSES.has(p.class) || f.geometry?.type !== 'Point') continue;
+    const name = p['name:en'] || p.name_en || p.name;
+    if (!name) continue;
+    const [plon, plat] = f.geometry.coordinates;
+    const dx = (lon - plon) * kx, dy = (lat - plat) * 110.57;
+    const km = Math.hypot(dx, dy);
+    if (!best || km < best.km) best = { name, km, dx, dy };
+  }
+  if (!best) return null;
+  if (best.km < 5) return { name: best.name, text: `Near ${best.name}`, near: true };
+  const dir = DIRS[Math.round(((Math.atan2(best.dx, best.dy) * 180 / Math.PI + 360) % 360) / 45) % 8];
+  const d = U.distance(best.km, distUnit);
+  return { name: best.name, text: `${U.fmt(d.v)} ${d.unit} ${dir} of ${best.name}`, near: false };
 }
 
 export function intensityWord(dbz) {
